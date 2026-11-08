@@ -1,5 +1,9 @@
 import {create} from 'zustand';
 
+import {
+  findCompanions,
+  orderCompanionsAfterVideos,
+} from '@/domain/files/companions';
 import {compareNaturally} from '@/domain/files/natural-sort';
 import {parseFileName} from '@/domain/parsing/parse-file-name';
 import type {ParsedName} from '@/domain/parsing/parsed-name';
@@ -19,6 +23,7 @@ export type Activity =
 type SessionState = {
   files: Array<ScannedFile>;
   parsedNames: ReadonlyMap<string, ParsedName | null>;
+  companions: ReadonlyMap<string, string>;
   templateSource: string;
   activity: Activity;
   undoableBatchId: string | null;
@@ -41,6 +46,7 @@ export const useSession = create<SessionState & SessionActions>()(
   (set, get) => ({
     files: [],
     parsedNames: new Map(),
+    companions: new Map(),
     templateSource: '',
     activity: {kind: 'idle'},
     undoableBatchId: null,
@@ -54,11 +60,13 @@ export const useSession = create<SessionState & SessionActions>()(
           compareNaturally(left.directory, right.directory) ||
           compareNaturally(left.name, right.name)
       );
+      const companions = findCompanions(sorted);
       set({
-        files: sorted,
+        files: orderCompanionsAfterVideos(sorted, companions),
         parsedNames: new Map(
           sorted.map(file => [file.path, parseFileName(file)])
         ),
+        companions,
       });
     },
     setTemplateSource(templateSource) {

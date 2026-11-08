@@ -6,6 +6,7 @@ import {
   CircleAlertIcon,
   CircleCheckIcon,
   CircleDashedIcon,
+  CornerDownRightIcon,
   TriangleAlertIcon,
 } from 'lucide-react';
 
@@ -110,11 +111,19 @@ function FileRow({
       )}
       style={style}>
       <StatusIcon status={status} />
-      <div className="min-w-0">
-        <p className="truncate" title={row.file.name}>
-          {row.file.name}
-        </p>
-        <DetectedSummary parsed={row.parsed} kind={row.kind} />
+      <div className="flex min-w-0 items-center gap-1.5">
+        {row.companionOf !== null && (
+          <CornerDownRightIcon
+            className="ml-1 size-3.5 shrink-0 text-muted-foreground"
+            aria-label="Renames with the video above"
+          />
+        )}
+        <div className="min-w-0">
+          <p className="truncate" title={row.file.name}>
+            {row.file.name}
+          </p>
+          <DetectedSummary parsed={row.parsed} kind={row.kind} />
+        </div>
       </div>
       <ArrowRightIcon
         className={cn(

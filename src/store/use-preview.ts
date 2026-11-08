@@ -31,6 +31,7 @@ export type Preview = {
 export function usePreview(): Preview {
   const files = useSession(state => state.files);
   const parsedNames = useSession(state => state.parsedNames);
+  const companions = useSession(state => state.companions);
   const templateSource = useSession(state => state.templateSource);
   const diskGeneration = useSession(state => state.diskGeneration);
   const planResult = useSession(state => state.planResult);
@@ -41,8 +42,8 @@ export function usePreview(): Preview {
   );
   const deferredNameSource = useDeferredValue(nameSource);
   const rows = useMemo(
-    () => buildPreview(files, parsedNames, deferredNameSource),
-    [files, parsedNames, deferredNameSource]
+    () => buildPreview(files, parsedNames, companions, deferredNameSource),
+    [files, parsedNames, companions, deferredNameSource]
   );
   const flags = useMemo(
     () => episodeFlags(files, parsedNames),

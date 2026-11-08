@@ -83,6 +83,26 @@ describe('followPlanning', () => {
     ]);
   });
 
+  it('plans companions with their video so the planner can block them together', async () => {
+    useSession.getState().setFiles([file('a.mkv'), file('a.en.forced.srt')]);
+    await editTemplate('b');
+
+    expect(pendingPlans.at(-1)?.request.renames).toEqual([
+      {
+        rowId: '/media/a.mkv',
+        source: '/media/a.mkv',
+        target: {kind: 'sameFolder', name: 'b.mkv'},
+        companionOf: null,
+      },
+      {
+        rowId: '/media/a.en.forced.srt',
+        source: '/media/a.en.forced.srt',
+        target: {kind: 'sameFolder', name: 'b.en.forced.srt'},
+        companionOf: '/media/a.mkv',
+      },
+    ]);
+  });
+
   it('plans once the names stop changing', async () => {
     useSession.getState().setTemplateSource('one');
     await vi.advanceTimersByTimeAsync(planningDelayMs - 1);

@@ -57,10 +57,16 @@ export function followPlanning(): () => void {
 
 async function requestPlan(): Promise<void> {
   const revision = ++latestRevision;
-  const {files, parsedNames, templateSource, diskGeneration, planResult} =
-    useSession.getState();
+  const {
+    files,
+    parsedNames,
+    companions,
+    templateSource,
+    diskGeneration,
+    planResult,
+  } = useSession.getState();
   const renames = proposedRenames(
-    buildPreview(files, parsedNames, nameSourceFor(templateSource))
+    buildPreview(files, parsedNames, companions, nameSourceFor(templateSource))
   );
   const key = planKey(renames, diskGeneration);
   if (renames.length === 0 || planResult?.key === key) return;

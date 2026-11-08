@@ -32,9 +32,12 @@ function parsedNamesFor(
 }
 
 function names(source: string, files: Array<ScannedFile>) {
-  return buildPreview(files, parsedNamesFor(files), parseTemplate(source)).map(
-    row => row.proposal
-  );
+  return buildPreview(
+    files,
+    parsedNamesFor(files),
+    new Map(),
+    parseTemplate(source)
+  ).map(row => row.proposal);
 }
 
 describe('buildPreview', () => {

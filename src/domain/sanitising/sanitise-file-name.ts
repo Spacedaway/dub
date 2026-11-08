@@ -57,6 +57,10 @@ export function sanitiseFileName(stem: string, extension: string): string {
   return fitLength(avoidReservedName(name), cleanExtension);
 }
 
+export function sanitiseCompanionSuffix(suffix: string): string {
+  return trimTrailingDotsAndSpaces(replaceCharacters(suffix.normalize('NFC')));
+}
+
 function cleanedExtension(extension: string): string {
   const cleaned = replaceCharacters(extension.normalize('NFC')).replace(
     / /g,
