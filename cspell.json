@@ -8,9 +8,11 @@
     "src-tauri/target/**",
     "src-tauri/gen/**",
     "src-tauri/icons/**",
-    "src/domain/parsing/cases.ts"
+    "src/domain/parsing/cases.ts",
+    "src/domain/lookups/group-status.test.ts"
   ],
   "words": [
+    "airdate",
     "anitomy",
     "APFS",
     "attrlist",
@@ -64,6 +66,7 @@
     "thiserror",
     "Toradora",
     "tsgolint",
+    "TVmaze",
     "Uninit",
     "volattr",
     "vostfr",
