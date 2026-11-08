@@ -46,6 +46,7 @@ export function followPlanning(): () => void {
   return useSession.subscribe((state, previous) => {
     if (
       state.files === previous.files &&
+      state.lookups.files === previous.lookups.files &&
       state.templateSource === previous.templateSource &&
       state.diskGeneration === previous.diskGeneration
     )
@@ -61,12 +62,19 @@ async function requestPlan(): Promise<void> {
     files,
     parsedNames,
     companions,
+    lookups,
     templateSource,
     diskGeneration,
     planResult,
   } = useSession.getState();
   const renames = proposedRenames(
-    buildPreview(files, parsedNames, companions, nameSourceFor(templateSource))
+    buildPreview(
+      files,
+      parsedNames,
+      companions,
+      lookups.files,
+      nameSourceFor(templateSource)
+    )
   );
   const key = planKey(renames, diskGeneration);
   if (renames.length === 0 || planResult?.key === key) return;

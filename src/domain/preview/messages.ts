@@ -1,3 +1,4 @@
+import type {LookupNote} from '@/domain/lookups/match-episodes';
 import type {EpisodeFlag} from '@/domain/suggestions/episode-flags';
 import type {
   PlanProblem,
@@ -96,6 +97,33 @@ export function describeFlag(flag: EpisodeFlag): string {
         : `Another file also has episodes ${flag.episodes.join(', ')}.`;
     case 'decimalEpisode':
       return `Episode ${flag.episode} is usually a special.`;
+  }
+}
+
+export function describeLookupNote(note: LookupNote): string {
+  switch (note.kind) {
+    case 'numbersDiffer':
+      return `The file says ${note.inFile}; TVmaze lists it as ${note.onTvmaze}.`;
+    case 'notListed':
+      return `TVmaze doesn't list ${note.episode}.`;
+    case 'nearbyDate':
+      return `Matched to the episode TVmaze lists a day apart, on ${note.airDate}.`;
+    case 'sharedDate':
+      return `TVmaze lists more than one episode on ${note.airDate}, so there's no title.`;
+    case 'unnumberedSpecial':
+      return "TVmaze doesn't number specials, so there's no title.";
+    case 'seasonFolderDiffers':
+      return `TVmaze lists this as ${note.onTvmaze}, not in season ${note.folderSeason}, so there's no title.`;
+    case 'yearDiffers':
+      return note.premiered === null
+        ? `The file says ${note.inFile}, but the chosen show has no premiere date, so nothing comes from TVmaze.`
+        : `The file says ${note.inFile}, but the chosen show premiered in ${note.premiered}, so nothing comes from TVmaze.`;
+    case 'chooseShow':
+      return 'Choose a show in the sidebar to add episode titles.';
+    case 'notFound':
+      return 'TVmaze has no show by this name. Search for it in the sidebar.';
+    case 'lookupFailed':
+      return "Couldn't reach TVmaze, so this name comes from the file.";
   }
 }
 

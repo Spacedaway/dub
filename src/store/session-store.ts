@@ -5,6 +5,13 @@ import {
   orderCompanionsAfterVideos,
 } from '@/domain/files/companions';
 import {compareNaturally} from '@/domain/files/natural-sort';
+import {
+  deriveLookups,
+  noLookups,
+  type Lookups,
+} from '@/domain/lookups/derive-lookups';
+import type {ShowLookup} from '@/domain/lookups/group-status';
+import {lookupGroups} from '@/domain/lookups/lookup-groups';
 import {parseFileName} from '@/domain/parsing/parse-file-name';
 import type {ParsedName} from '@/domain/parsing/parsed-name';
 import type {BatchKind, ScannedFile} from '@/ipc/contracts';
@@ -30,6 +37,9 @@ type SessionState = {
   diskGeneration: number;
   planResult: PlanResult | null;
   isDraggingOver: boolean;
+  lookupsEnabled: boolean | null;
+  showLookups: ReadonlyMap<string, ShowLookup>;
+  lookups: Lookups;
 };
 
 type SessionActions = {
@@ -40,6 +50,7 @@ type SessionActions = {
   markDiskChanged: () => void;
   setPlanResult: (planResult: PlanResult) => void;
   setDraggingOver: (isDraggingOver: boolean) => void;
+  setShowLookup: (groupKey: string, lookup: ShowLookup | null) => void;
 };
 
 export const useSession = create<SessionState & SessionActions>()(
@@ -53,6 +64,9 @@ export const useSession = create<SessionState & SessionActions>()(
     diskGeneration: 0,
     planResult: null,
     isDraggingOver: false,
+    lookupsEnabled: true,
+    showLookups: new Map(),
+    lookups: noLookups,
 
     setFiles(files) {
       const sorted = [...files].sort(
@@ -61,12 +75,27 @@ export const useSession = create<SessionState & SessionActions>()(
           compareNaturally(left.name, right.name)
       );
       const companions = findCompanions(sorted);
+      const parsedNames = new Map(
+        sorted.map(file => [file.path, parseFileName(file)])
+      );
+      const groupKeys = new Set(
+        lookupGroups(sorted, parsedNames).map(group => group.key)
+      );
+      const showLookups = new Map(
+        [...get().showLookups].filter(([key]) => groupKeys.has(key))
+      );
+      const orderedFiles = orderCompanionsAfterVideos(sorted, companions);
       set({
-        files: orderCompanionsAfterVideos(sorted, companions),
-        parsedNames: new Map(
-          sorted.map(file => [file.path, parseFileName(file)])
-        ),
+        files: orderedFiles,
+        parsedNames,
         companions,
+        showLookups,
+        lookups: deriveLookups(
+          orderedFiles,
+          parsedNames,
+          showLookups,
+          get().lookupsEnabled
+        ),
       });
     },
     setTemplateSource(templateSource) {
@@ -86,6 +115,16 @@ export const useSession = create<SessionState & SessionActions>()(
     },
     setDraggingOver(isDraggingOver) {
       if (get().isDraggingOver !== isDraggingOver) set({isDraggingOver});
+    },
+    setShowLookup(groupKey, lookup) {
+      const {files, parsedNames, lookupsEnabled} = get();
+      const showLookups = new Map(get().showLookups);
+      if (lookup === null) showLookups.delete(groupKey);
+      else showLookups.set(groupKey, lookup);
+      set({
+        showLookups,
+        lookups: deriveLookups(files, parsedNames, showLookups, lookupsEnabled),
+      });
     },
   })
 );

@@ -36,6 +36,7 @@ function names(source: string, files: Array<ScannedFile>) {
     files,
     parsedNamesFor(files),
     new Map(),
+    new Map(),
     parseTemplate(source)
   ).map(row => row.proposal);
 }

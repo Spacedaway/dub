@@ -83,6 +83,37 @@ describe('followPlanning', () => {
     ]);
   });
 
+  it('plans the looked-up names once a show is matched', async () => {
+    useSession.getState().setFiles([file('Show.S01E01.mkv')]);
+    await vi.advanceTimersByTimeAsync(planningDelayMs);
+    const [view] = useSession.getState().lookups.groups;
+    if (view === undefined) throw new Error('Expected one show');
+
+    useSession.getState().setShowLookup(view.group.key, {
+      kind: 'chosen',
+      listing: {
+        show: {
+          id: 1,
+          name: 'The Show',
+          premiered: '2020-01-01',
+          status: null,
+          network: null,
+          country: null,
+        },
+        episodes: [{season: 1, number: 1, title: 'Pilot', airDate: null}],
+        fetchedAt: 0,
+      },
+      namesakes: false,
+      how: 'picked',
+    });
+    await vi.advanceTimersByTimeAsync(planningDelayMs);
+
+    expect(pendingPlans.map(({request}) => targetNames(request))).toEqual([
+      'Show - S01E01.mkv',
+      'The Show - S01E01 - Pilot.mkv',
+    ]);
+  });
+
   it('plans companions with their video so the planner can block them together', async () => {
     useSession.getState().setFiles([file('a.mkv'), file('a.en.forced.srt')]);
     await editTemplate('b');

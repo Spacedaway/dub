@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 
 import {followFileDrops} from '@/ipc/file-drop';
 import {followPlanning} from '@/store/live-plan';
+import {followLookups} from '@/store/lookups';
 import {addPaths, loadUndoableBatch} from '@/store/session-actions';
 import {useSession} from '@/store/session-store';
 import '@/styles/main.css';
@@ -15,6 +16,7 @@ document.documentElement.dataset.platform = navigator.userAgent.includes('Mac')
   : 'windows';
 
 followPlanning();
+followLookups();
 followFileDrops({
   onDraggingOverChange: useSession.getState().setDraggingOver,
   onDrop: paths => void addPaths(paths),

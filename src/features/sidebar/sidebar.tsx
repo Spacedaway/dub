@@ -10,10 +10,13 @@ import {
 import {useSession} from '@/store/session-store';
 import type {Preview} from '@/store/use-preview';
 import {Button} from '@/ui/button';
+import {ShowsSection} from '@/features/shows/shows-section';
+import {SectionHeading} from '@/features/sidebar/section-heading';
 import {TemplateField} from '@/features/step-editor/template-field';
 
 export function Sidebar({preview}: {preview: Preview}) {
-  const {nameSource, counterIgnoresEpisodes, readyPlan, readyCount} = preview;
+  const {nameSource, counterIgnoresEpisodes, lookups, readyPlan, readyCount} =
+    preview;
   const files = useSession(state => state.files);
   const templateSource = useSession(state => state.templateSource);
   const setTemplateSource = useSession(state => state.setTemplateSource);
@@ -62,6 +65,8 @@ export function Sidebar({preview}: {preview: Preview}) {
         </div>
       </section>
 
+      {lookups.groups.length > 0 && <ShowsSection lookups={lookups} />}
+
       <section className="flex flex-col gap-2 px-4">
         <SectionHeading>Rename to</SectionHeading>
         <TemplateField
@@ -84,11 +89,14 @@ export function Sidebar({preview}: {preview: Preview}) {
         )}
         <Button
           size="lg"
-          disabled={isBusy || readyPlan === null || readyCount === 0}
+          disabled={
+            isBusy ||
+            lookups.pendingCount > 0 ||
+            readyPlan === null ||
+            readyCount === 0
+          }
           onClick={() => readyPlan && applyPlan(readyPlan)}>
-          {readyCount === 0
-            ? 'Nothing to rename'
-            : `Rename ${readyCount} ${readyCount === 1 ? 'file' : 'files'}`}
+          {renameLabel(readyCount, lookups.pendingCount)}
         </Button>
         <Button
           variant="ghost"
@@ -102,12 +110,11 @@ export function Sidebar({preview}: {preview: Preview}) {
   );
 }
 
-function SectionHeading({children}: {children: React.ReactNode}) {
-  return (
-    <h2 className="text-caption font-semibold tracking-wide text-muted-foreground uppercase">
-      {children}
-    </h2>
-  );
+function renameLabel(readyCount: number, pendingShows: number): string {
+  if (pendingShows > 0)
+    return `Looking up ${pendingShows} ${pendingShows === 1 ? 'show' : 'shows'}…`;
+  if (readyCount === 0) return 'Nothing to rename';
+  return `Rename ${readyCount} ${readyCount === 1 ? 'file' : 'files'}`;
 }
 
 function Progress({

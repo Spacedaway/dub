@@ -1,5 +1,6 @@
 import {useDeferredValue, useMemo} from 'react';
 
+import type {Lookups} from '@/domain/lookups/derive-lookups';
 import {
   buildPreview,
   nameSourceFor,
@@ -18,6 +19,7 @@ import {useSession} from '@/store/session-store';
 
 export type Preview = {
   nameSource: NameSource;
+  lookups: Lookups;
   rows: Array<PreviewRow>;
   flags: ReadonlyMap<string, Array<EpisodeFlag>>;
   counterIgnoresEpisodes: boolean;
@@ -32,6 +34,7 @@ export function usePreview(): Preview {
   const files = useSession(state => state.files);
   const parsedNames = useSession(state => state.parsedNames);
   const companions = useSession(state => state.companions);
+  const lookups = useSession(state => state.lookups);
   const templateSource = useSession(state => state.templateSource);
   const diskGeneration = useSession(state => state.diskGeneration);
   const planResult = useSession(state => state.planResult);
@@ -42,8 +45,15 @@ export function usePreview(): Preview {
   );
   const deferredNameSource = useDeferredValue(nameSource);
   const rows = useMemo(
-    () => buildPreview(files, parsedNames, companions, deferredNameSource),
-    [files, parsedNames, companions, deferredNameSource]
+    () =>
+      buildPreview(
+        files,
+        parsedNames,
+        companions,
+        lookups.files,
+        deferredNameSource
+      ),
+    [files, parsedNames, companions, lookups.files, deferredNameSource]
   );
   const flags = useMemo(
     () => episodeFlags(files, parsedNames),
@@ -65,6 +75,7 @@ export function usePreview(): Preview {
 
   return {
     nameSource,
+    lookups,
     rows,
     flags,
     counterIgnoresEpisodes: ignoresEpisodes,

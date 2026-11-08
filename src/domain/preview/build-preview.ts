@@ -1,3 +1,4 @@
+import type {FileLookup} from '@/domain/lookups/derive-lookups';
 import type {ParsedName} from '@/domain/parsing/parsed-name';
 import {
   sanitiseCompanionSuffix,
@@ -29,6 +30,7 @@ export type PreviewRow = {
   proposal: NameProposal;
   missingTags: Array<TagName>;
   companionOf: string | null;
+  lookup: FileLookup | null;
 };
 
 export type NameSource = {kind: 'suggested'} | TemplateParseResult;
@@ -43,13 +45,20 @@ export function buildPreview(
   files: Array<ScannedFile>,
   parsedNames: ReadonlyMap<string, ParsedName | null>,
   companions: ReadonlyMap<string, string>,
+  lookups: ReadonlyMap<string, FileLookup>,
   nameSource: NameSource
 ): Array<PreviewRow> {
   const mainFiles = files.filter(file => !companions.has(file.path));
   const mainRows = new Map(
     withCounters(mainFiles).map(({file, counter}) => [
       file.path,
-      mainRow(file, parsedNames.get(file.path) ?? null, nameSource, counter),
+      mainRow(
+        file,
+        parsedNames.get(file.path) ?? null,
+        lookups.get(file.path) ?? null,
+        nameSource,
+        counter
+      ),
     ])
   );
 
@@ -63,6 +72,7 @@ export function buildPreview(
 function mainRow(
   file: ScannedFile,
   parsed: ParsedName | null,
+  lookup: FileLookup | null,
   nameSource: NameSource,
   counter: CounterIndexes
 ): PreviewRow {
@@ -75,6 +85,7 @@ function mainRow(
       proposal: {kind: 'templateInvalid'},
       missingTags: [],
       companionOf: null,
+      lookup,
     };
   }
 
@@ -82,7 +93,11 @@ function mainRow(
     nameSource.kind === 'suggested'
       ? defaultTemplates[kind]
       : nameSource.template;
-  const values = {...fileTagValues(file), ...parsedTagValues(parsed)};
+  const values = {
+    ...fileTagValues(file),
+    ...parsedTagValues(parsed),
+    ...(lookup?.kind === 'resolved' ? lookup.tags : {}),
+  };
   const rendered = renderTemplate(template, values, counter);
   return {
     file,
@@ -91,6 +106,7 @@ function mainRow(
     proposal: propose(file, rendered.text),
     missingTags: rendered.missingTags,
     companionOf: null,
+    lookup,
   };
 }
 
@@ -108,6 +124,7 @@ function companionRow(
         : followVideo(file, video.file, video.proposal),
     missingTags: [],
     companionOf: video?.file.path ?? null,
+    lookup: null,
   };
 }
 
