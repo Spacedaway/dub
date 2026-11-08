@@ -398,7 +398,7 @@ function splitTrailingYear(title: string): {
   name: string | null;
   year: number | null;
 } {
-  const match = /^(.*?)[\s.]*[[(]?((?:19|20)\d{2})[\])]?$/.exec(title.trim());
+  const match = /^(.*?)[\s.]*[[(]?((?:19|20)\d{2})[\])]?[\s-]*$/.exec(title);
   if (match?.[1]) return nameAndYear(cleanTitle(match[1]), match[2]);
   return {name: cleanTitle(title), year: null};
 }

@@ -7,7 +7,9 @@ export const defaultTemplates: Record<FileKind, Template> = {
     '<Name> - S<Season:00>E<Episode:00>{ - <Episode Title>}'
   ),
   datedEpisode: parsedDefault('<Name> - <Air Date>{ - <Episode Title>}'),
-  numberedEpisode: parsedDefault('<Name> - Episode <Episode:00>'),
+  numberedEpisode: parsedDefault(
+    '<Name> - Episode <Episode:00>{ - <Episode Title>}'
+  ),
   film: parsedDefault('<Name> (<Year>)'),
   generic: parsedDefault('<Original>'),
 };

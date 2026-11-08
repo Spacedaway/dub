@@ -755,4 +755,89 @@ export const parserCases: Array<ParserCase> = [
     fileName: 'Series.Title.13.02.2025.1080i.HDTV.MPA2.0.H.264.mkv',
     expected: {name: 'Series Title', airDate: '2025-02-13'},
   },
+  {
+    fileName: 'Doctor Who (2005) - S01E01 - Rose.mkv',
+    expected: {
+      name: 'Doctor Who',
+      year: 2005,
+      season: 1,
+      episodes: [1],
+      episodeTitle: 'Rose',
+    },
+  },
+  {
+    fileName: 'Star Trek - Discovery - S01E01 - The Vulcan Hello.mkv',
+    expected: {
+      name: 'Star Trek - Discovery',
+      season: 1,
+      episodes: [1],
+      episodeTitle: 'The Vulcan Hello',
+    },
+  },
+  {
+    fileName: 'Smallville - S01E05 - Countdown - 12 Hours.mkv',
+    expected: {
+      name: 'Smallville',
+      season: 1,
+      episodes: [5],
+      episodeTitle: 'Countdown - 12 Hours',
+    },
+  },
+  {
+    fileName: 'Smallville - S01E05 - Hothead (1).mkv',
+    expected: {name: 'Smallville', episodeTitle: 'Hothead (1)'},
+  },
+  {
+    fileName: 'Smallville - S01E05 - Hothead Part 2.mkv',
+    expected: {name: 'Smallville', episodeTitle: 'Hothead Part 2'},
+  },
+  {
+    fileName:
+      'Doctor Who (2005) - S01E04-E05 - Aliens of London & World War Three.mkv',
+    expected: {
+      name: 'Doctor Who',
+      season: 1,
+      episodes: [4, 5],
+      episodeTitle: 'Aliens of London & World War Three',
+    },
+  },
+  {
+    knownFailure: 'a title that is a year is read as the year',
+    fileName: 'Smallville - S02E03 - 1984.mkv',
+    expected: {name: 'Smallville', episodeTitle: '1984'},
+  },
+  {
+    fileName:
+      "Frieren - Beyond Journey's End - Episode 05 - The Priest's Lie.mkv",
+    expected: {
+      name: "Frieren - Beyond Journey's End",
+      season: null,
+      episodes: [5],
+      episodeTitle: "The Priest's Lie",
+    },
+  },
+  {
+    fileName: 'Oshi no Ko - Episode 01-02 - Mother and Children.mkv',
+    expected: {
+      name: 'Oshi no Ko',
+      episodes: [1, 2],
+      episodeTitle: 'Mother and Children',
+    },
+  },
+  {
+    fileName: '86 - Eighty Six - Episode 12 - 12 Angry Men.mkv',
+    expected: {
+      name: '86 - Eighty Six',
+      episodes: [12],
+      episodeTitle: '12 Angry Men',
+    },
+  },
+  {
+    fileName: 'A Late Talk Show - 2026-11-04 - Guest Name.mkv',
+    expected: {
+      name: 'A Late Talk Show',
+      airDate: '2026-11-04',
+      episodeTitle: 'Guest Name',
+    },
+  },
 ];
