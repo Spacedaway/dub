@@ -47,6 +47,7 @@ impl FileProbe for DiskProbe {
 
 struct Candidate {
     row_id: String,
+    companion_of: Option<String>,
     source_path: String,
     target_path: String,
     source_key: String,
@@ -65,6 +66,10 @@ impl Candidate {
     fn moves(&self) -> bool {
         !self.unchanged && !self.is_blocked()
     }
+
+    fn group(&self) -> &String {
+        self.companion_of.as_ref().unwrap_or(&self.row_id)
+    }
 }
 
 pub fn plan(request: PlanRequest, probe: &mut impl FileProbe) -> Plan {
@@ -79,6 +84,7 @@ pub fn plan(request: PlanRequest, probe: &mut impl FileProbe) -> Plan {
 
     block_duplicates(&mut candidates);
     block_occupied_targets(&mut candidates, probe);
+    block_companions_without_their_video(&mut candidates);
     cascade_blocks(&mut candidates);
     let steps = order_steps(&candidates, &plan_tag, probe);
 
@@ -137,6 +143,7 @@ fn inspect(rename: &ProposedRename, probe: &mut impl FileProbe) -> Candidate {
 
     Candidate {
         row_id: rename.row_id.clone(),
+        companion_of: rename.companion_of.clone(),
         source_key: names::collision_key(&source_path),
         target_key: names::collision_key(&target_path),
         source_path,
@@ -219,30 +226,67 @@ fn block_occupied_targets(candidates: &mut [Candidate], probe: &mut impl FilePro
     }
 }
 
+fn block_companions_without_their_video(candidates: &mut [Candidate]) {
+    let videos: HashSet<String> = candidates
+        .iter()
+        .filter(|candidate| candidate.companion_of.is_none())
+        .map(|candidate| candidate.row_id.clone())
+        .collect();
+
+    for candidate in candidates.iter_mut() {
+        if let Some(video) = &candidate.companion_of
+            && !videos.contains(video)
+        {
+            candidate.problems.push(PlanProblem::GroupBlocked {
+                row_id: video.clone(),
+            });
+        }
+    }
+}
+
 fn cascade_blocks(candidates: &mut [Candidate]) {
     loop {
-        let blocked_sources: HashMap<String, String> = candidates
-            .iter()
-            .filter(|candidate| candidate.is_blocked() && !candidate.unchanged)
-            .map(|candidate| (candidate.source_key.clone(), candidate.row_id.clone()))
-            .collect();
+        let blocked_sources = first_blocked_row_by(candidates, |candidate| &candidate.source_key);
+        let blocked_groups = first_blocked_row_by(candidates, Candidate::group);
 
         let mut changed = false;
         for candidate in candidates.iter_mut() {
-            if !candidate.moves() || candidate.target_key == candidate.source_key {
+            if !candidate.moves() {
                 continue;
             }
-            if let Some(blocker) = blocked_sources.get(&candidate.target_key) {
-                candidate.problems.push(PlanProblem::BlockedByRow {
+            let problem = if let Some(blocker) = blocked_sources.get(&candidate.target_key) {
+                PlanProblem::BlockedByRow {
                     row_id: blocker.clone(),
-                });
-                changed = true;
-            }
+                }
+            } else if let Some(blocker) = blocked_groups.get(candidate.group()) {
+                PlanProblem::GroupBlocked {
+                    row_id: blocker.clone(),
+                }
+            } else {
+                continue;
+            };
+            candidate.problems.push(problem);
+            changed = true;
         }
         if !changed {
             break;
         }
     }
+}
+
+fn first_blocked_row_by(
+    candidates: &[Candidate],
+    key: impl Fn(&Candidate) -> &String,
+) -> HashMap<String, String> {
+    let mut rows = HashMap::new();
+    for candidate in candidates
+        .iter()
+        .filter(|candidate| candidate.is_blocked() && !candidate.unchanged)
+    {
+        rows.entry(key(candidate).clone())
+            .or_insert_with(|| candidate.row_id.clone());
+    }
+    rows
 }
 
 fn order_steps(
@@ -464,7 +508,21 @@ mod tests {
             target: RenameTarget::SameFolder {
                 name: to.to_string(),
             },
+            companion_of: None,
         }
+    }
+
+    fn companion(from: &str, to: &str, video: &str) -> ProposedRename {
+        ProposedRename {
+            companion_of: Some(video.to_string()),
+            ..rename(from, to)
+        }
+    }
+
+    fn group_blocked(row_id: &str) -> Vec<PlanProblem> {
+        vec![PlanProblem::GroupBlocked {
+            row_id: row_id.to_string(),
+        }]
     }
 
     fn run(disk: &mut FakeDisk, renames: Vec<ProposedRename>) -> Plan {
@@ -642,6 +700,73 @@ mod tests {
                 row_id: "a.mkv".to_string()
             }]
         );
+    }
+
+    #[test]
+    fn a_blocked_companion_blocks_its_video_and_the_other_companions() {
+        let mut disk = FakeDisk::with_files(&["a.mkv", "a.en.srt", "a.en.forced.srt", "b.en.srt"]);
+        let plan = run(
+            &mut disk,
+            vec![
+                rename("a.mkv", "b.mkv"),
+                companion("a.en.srt", "b.en.srt", "a.mkv"),
+                companion("a.en.forced.srt", "b.en.forced.srt", "a.mkv"),
+            ],
+        );
+        assert!(plan.steps.is_empty());
+        assert_eq!(problems(&plan, "a.en.srt"), vec![PlanProblem::TargetExists]);
+        assert_eq!(problems(&plan, "a.mkv"), group_blocked("a.en.srt"));
+        assert_eq!(
+            problems(&plan, "a.en.forced.srt"),
+            group_blocked("a.en.srt")
+        );
+    }
+
+    #[test]
+    fn a_blocked_video_blocks_its_companions() {
+        let mut disk = FakeDisk::with_files(&["a.mkv", "b.mkv", "a.en.srt"]);
+        let plan = run(
+            &mut disk,
+            vec![
+                rename("a.mkv", "c.mkv"),
+                rename("b.mkv", "c.mkv"),
+                companion("a.en.srt", "c.en.srt", "a.mkv"),
+            ],
+        );
+        assert!(plan.steps.is_empty());
+        assert_eq!(problems(&plan, "a.en.srt"), group_blocked("a.mkv"));
+    }
+
+    #[test]
+    fn a_companion_sent_without_its_video_is_blocked() {
+        let mut disk = FakeDisk::with_files(&["a.mkv", "a.en.srt"]);
+        let plan = run(&mut disk, vec![companion("a.en.srt", "b.en.srt", "a.mkv")]);
+        assert!(plan.steps.is_empty());
+        assert_eq!(problems(&plan, "a.en.srt"), group_blocked("a.mkv"));
+    }
+
+    #[test]
+    fn group_blocks_and_row_blocks_cascade_into_each_other() {
+        let mut disk =
+            FakeDisk::with_files(&["a.mkv", "a.en.srt", "b.mkv", "b.nfo", "taken.en.srt"]);
+        let plan = run(
+            &mut disk,
+            vec![
+                rename("a.mkv", "taken.mkv"),
+                companion("a.en.srt", "taken.en.srt", "a.mkv"),
+                rename("b.mkv", "a.mkv"),
+                companion("b.nfo", "a.nfo", "b.mkv"),
+            ],
+        );
+        assert!(plan.steps.is_empty());
+        assert_eq!(problems(&plan, "a.mkv"), group_blocked("a.en.srt"));
+        assert_eq!(
+            problems(&plan, "b.mkv"),
+            vec![PlanProblem::BlockedByRow {
+                row_id: "a.mkv".to_string()
+            }]
+        );
+        assert_eq!(problems(&plan, "b.nfo"), group_blocked("b.mkv"));
     }
 
     #[test]

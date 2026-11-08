@@ -32,6 +32,8 @@ export function describeProblem(problem: PlanProblem): string {
       return 'A file with this name is already in the folder.';
     case 'blockedByRow':
       return "Its new name belongs to a file that can't be renamed.";
+    case 'groupBlocked':
+      return `It renames together with “${fileName(problem.rowId)}”, which can't be renamed.`;
     case 'sourceMissing':
       return 'The file is no longer where it was found.';
     case 'readOnlyVolume':
@@ -95,4 +97,8 @@ export function describeFlag(flag: EpisodeFlag): string {
     case 'decimalEpisode':
       return `Episode ${flag.episode} is usually a special.`;
   }
+}
+
+function fileName(path: string): string {
+  return path.split(/[\\/]/).at(-1) ?? path;
 }

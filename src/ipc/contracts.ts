@@ -50,6 +50,7 @@ export type ProposedRename = {
   rowId: string;
   source: string;
   target: RenameTarget;
+  companionOf: string | null;
 };
 
 export type PlanRequest = {revision: number; renames: Array<ProposedRename>};
@@ -66,6 +67,7 @@ export type PlanProblem =
   | {kind: 'duplicateSource'; otherRowIds: Array<string>}
   | {kind: 'targetExists'}
   | {kind: 'blockedByRow'; rowId: string}
+  | {kind: 'groupBlocked'; rowId: string}
   | {kind: 'sourceMissing'}
   | {kind: 'readOnlyVolume'}
   | {kind: 'volumeUnavailable'}

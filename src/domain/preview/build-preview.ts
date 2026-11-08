@@ -100,6 +100,7 @@ export function proposedRenames(
             rowId: row.file.path,
             source: row.file.path,
             target: {kind: 'sameFolder', name: row.proposal.name},
+            companionOf: null,
           },
         ]
       : []

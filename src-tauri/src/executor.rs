@@ -480,6 +480,7 @@ mod tests {
                     target: RenameTarget::SameFolder {
                         name: to.to_string(),
                     },
+                    companion_of: None,
                 })
                 .collect();
             planner::plan(
@@ -748,6 +749,7 @@ mod tests {
                         target: RenameTarget::SameFolder {
                             name: to.to_string(),
                         },
+                        companion_of: None,
                     }],
                 },
                 &mut DiskProbe::default(),
@@ -814,6 +816,7 @@ mod tests {
                     target: RenameTarget::SameFolder {
                         name: "renamed.txt".to_string(),
                     },
+                    companion_of: None,
                 }],
             },
             &mut DiskProbe::default(),

@@ -111,6 +111,7 @@ pub struct ProposedRename {
     pub row_id: String,
     pub source: String,
     pub target: RenameTarget,
+    pub companion_of: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -174,6 +175,7 @@ pub enum PlanProblem {
     DuplicateSource { other_row_ids: Vec<String> },
     TargetExists,
     BlockedByRow { row_id: String },
+    GroupBlocked { row_id: String },
     SourceMissing,
     ReadOnlyVolume,
     VolumeUnavailable,
