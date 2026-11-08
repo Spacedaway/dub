@@ -1,3 +1,4 @@
+import {baseName} from '@/domain/files/base-name';
 import type {LookupNote} from '@/domain/lookups/match-episodes';
 import type {EpisodeFlag} from '@/domain/suggestions/episode-flags';
 import type {
@@ -34,7 +35,7 @@ export function describeProblem(problem: PlanProblem): string {
     case 'blockedByRow':
       return "Its new name belongs to a file that can't be renamed.";
     case 'groupBlocked':
-      return `It renames together with “${fileName(problem.rowId)}”, which can't be renamed.`;
+      return `It renames together with “${baseName(problem.rowId)}”, which can't be renamed.`;
     case 'sourceMissing':
       return 'The file is no longer where it was found.';
     case 'readOnlyVolume':
@@ -125,8 +126,4 @@ export function describeLookupNote(note: LookupNote): string {
     case 'lookupFailed':
       return "Couldn't reach TVmaze, so this name comes from the file.";
   }
-}
-
-function fileName(path: string): string {
-  return path.split(/[\\/]/).at(-1) ?? path;
 }

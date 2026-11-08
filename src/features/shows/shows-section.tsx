@@ -1,3 +1,4 @@
+import {useState} from 'react';
 import {
   CircleAlertIcon,
   CircleCheckIcon,
@@ -6,15 +7,19 @@ import {
   TriangleAlertIcon,
 } from 'lucide-react';
 
+import {baseName} from '@/domain/files/base-name';
 import type {GroupView, Lookups} from '@/domain/lookups/derive-lookups';
 import type {GroupStatus} from '@/domain/lookups/group-status';
 import {premiereYear, type TvShow} from '@/domain/lookups/tvmaze';
 import {chooseShow, retryLookup} from '@/store/lookups';
 import {useSession} from '@/store/session-store';
 import {Button} from '@/ui/button';
+import {ShowPicker} from '@/features/shows/show-picker';
 import {SectionHeading} from '@/features/sidebar/section-heading';
 
 export function ShowsSection({lookups}: {lookups: Lookups}) {
+  const [pickerKey, setPickerKey] = useState<string | null>(null);
+  const pickerView = lookups.groups.find(view => view.group.key === pickerKey);
   const names = lookups.groups.map(view => displayName(view));
   const repeatedNames = new Set(
     names.filter((name, index) => names.indexOf(name) !== index)
@@ -32,24 +37,40 @@ export function ShowsSection({lookups}: {lookups: Lookups}) {
             key={view.group.key}
             view={view}
             showFolder={repeatedNames.has(displayName(view))}
+            onPick={() => setPickerKey(view.group.key)}
           />
         ))}
       </ul>
       <p className="text-caption text-muted-foreground">
         TV data from TVmaze.com
       </p>
+      {pickerView !== undefined && (
+        <ShowPicker
+          key={pickerView.group.key}
+          view={pickerView}
+          onClose={() => setPickerKey(null)}
+        />
+      )}
     </section>
   );
 }
 
-function ShowRow({view, showFolder}: {view: GroupView; showFolder: boolean}) {
+function ShowRow({
+  view,
+  showFolder,
+  onPick,
+}: {
+  view: GroupView;
+  showFolder: boolean;
+  onPick: () => void;
+}) {
   const {group, status} = view;
   const isBusy = useSession(state => state.activity.kind !== 'idle');
   const fileCount = `${group.members.length} ${group.members.length === 1 ? 'file' : 'files'}`;
   const details = [
     fileCount,
     statusText(status),
-    ...(showFolder ? [folderName(group.showFolder)] : []),
+    ...(showFolder ? [baseName(group.showFolder)] : []),
   ].join(' · ');
 
   return (
@@ -78,13 +99,18 @@ function ShowRow({view, showFolder}: {view: GroupView; showFolder: boolean}) {
           Use
         </Button>
       )}
-      {status.kind === 'failed' && (
+      {pickLabel(status) !== null && (
+        <Button variant="ghost" size="xs" disabled={isBusy} onClick={onPick}>
+          {pickLabel(status)}
+        </Button>
+      )}
+      {(status.kind === 'failed' || status.kind === 'declined') && (
         <Button
           variant="outline"
           size="xs"
           disabled={isBusy}
           onClick={() => retryLookup(group)}>
-          Retry
+          {status.kind === 'failed' ? 'Retry' : 'Look up'}
         </Button>
       )}
     </li>
@@ -144,6 +170,21 @@ function showLabel(show: TvShow): string {
   return year === null ? show.name : `${show.name} (${year})`;
 }
 
+function pickLabel(status: GroupStatus): string | null {
+  switch (status.kind) {
+    case 'matched':
+      return 'Change…';
+    case 'unsure':
+      return 'Choose…';
+    case 'notFound':
+      return 'Search…';
+    case 'pending':
+    case 'declined':
+    case 'failed':
+      return null;
+  }
+}
+
 function statusText(status: GroupStatus): string {
   switch (status.kind) {
     case 'pending':
@@ -180,8 +221,4 @@ function summary(groups: Array<GroupView>): string {
   return described.length === 0
     ? `${groups.length} ${groups.length === 1 ? 'show' : 'shows'}`
     : described.join(' · ');
-}
-
-function folderName(path: string): string {
-  return path.split(/[\\/]/).at(-1) ?? path;
 }
