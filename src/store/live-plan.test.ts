@@ -84,6 +84,7 @@ describe('followPlanning', () => {
   });
 
   it('plans the looked-up names once a show is matched', async () => {
+    useSession.getState().setLookupsEnabled(true);
     useSession.getState().setFiles([file('Show.S01E01.mkv')]);
     await vi.advanceTimersByTimeAsync(planningDelayMs);
     const [view] = useSession.getState().lookups.groups;

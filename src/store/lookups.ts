@@ -27,6 +27,8 @@ type StillWanted = () => boolean;
 const listingMaxAgeMs = 7 * 24 * 60 * 60 * 1000;
 const missingEpisodeMaxAgeMs = 60 * 60 * 1000;
 
+const lookupsSetting = 'lookupsEnabled';
+
 const latestRevisions = new Map<string, number>();
 const running = new Map<string, number>();
 const refreshedShows = new Set<number>();
@@ -102,8 +104,31 @@ export async function searchShows(query: string): Promise<Array<TvShow>> {
   return readSearchResults(await tvmaze.searchShows(query, () => true));
 }
 
+export async function loadLookupsSetting(): Promise<void> {
+  let enabled = true;
+  try {
+    enabled = (await cache.readSetting(lookupsSetting)) !== 'false';
+  } catch (error) {
+    console.warn("Couldn't read the lookups setting", error);
+  }
+  if (useSession.getState().lookupsEnabled === null)
+    useSession.getState().setLookupsEnabled(enabled);
+}
+
+export async function switchLookups(enabled: boolean): Promise<void> {
+  useSession.getState().setLookupsEnabled(enabled);
+  try {
+    await cache.writeSetting(lookupsSetting, String(enabled));
+  } catch (error) {
+    toast.warning(
+      `Couldn't save the lookups setting, so it resets when Dub restarts: ${errorMessage(error)}`
+    );
+  }
+}
+
 function startWaitingLookups(): void {
-  const {lookups, showLookups} = useSession.getState();
+  const {lookups, showLookups, lookupsEnabled} = useSession.getState();
+  if (lookupsEnabled !== true) return;
   for (const {group, status} of lookups.groups) {
     if (running.has(group.key)) continue;
     if (status.kind === 'pending') {

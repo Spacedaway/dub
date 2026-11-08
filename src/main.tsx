@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom/client';
 
 import {followFileDrops} from '@/ipc/file-drop';
 import {followPlanning} from '@/store/live-plan';
-import {followLookups} from '@/store/lookups';
+import {followLookups, loadLookupsSetting} from '@/store/lookups';
 import {addPaths, loadUndoableBatch} from '@/store/session-actions';
 import {useSession} from '@/store/session-store';
 import '@/styles/main.css';
@@ -22,6 +22,7 @@ followFileDrops({
   onDrop: paths => void addPaths(paths),
 });
 void loadUndoableBatch();
+void loadLookupsSetting();
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>

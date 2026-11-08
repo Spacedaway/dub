@@ -22,6 +22,7 @@ export function Sidebar({preview}: {preview: Preview}) {
   const setTemplateSource = useSession(state => state.setTemplateSource);
   const activity = useSession(state => state.activity);
   const undoableBatchId = useSession(state => state.undoableBatchId);
+  const lookupsEnabled = useSession(state => state.lookupsEnabled);
 
   const isBusy = activity.kind !== 'idle';
   const folderCount = new Set(files.map(file => file.directory)).size;
@@ -65,7 +66,9 @@ export function Sidebar({preview}: {preview: Preview}) {
         </div>
       </section>
 
-      {lookups.groups.length > 0 && <ShowsSection lookups={lookups} />}
+      {(lookups.groups.length > 0 || lookupsEnabled === false) && (
+        <ShowsSection lookups={lookups} />
+      )}
 
       <section className="flex flex-col gap-2 px-4">
         <SectionHeading>Rename to</SectionHeading>

@@ -53,6 +53,7 @@ type SessionActions = {
   setDraggingOver: (isDraggingOver: boolean) => void;
   setShowLookup: (groupKey: string, lookup: ShowLookup | null) => void;
   addVolumes: (volumes: Array<VolumeInfo>) => void;
+  setLookupsEnabled: (enabled: boolean) => void;
 };
 
 export const useSession = create<SessionState & SessionActions>()(
@@ -67,7 +68,7 @@ export const useSession = create<SessionState & SessionActions>()(
     planResult: null,
     isDraggingOver: false,
     volumes: new Map(),
-    lookupsEnabled: true,
+    lookupsEnabled: null,
     showLookups: new Map(),
     lookups: noLookups,
 
@@ -123,6 +124,13 @@ export const useSession = create<SessionState & SessionActions>()(
       const known = new Map(get().volumes);
       for (const volume of volumes) known.set(volume.id, volume);
       set({volumes: known});
+    },
+    setLookupsEnabled(lookupsEnabled) {
+      const {files, parsedNames, showLookups} = get();
+      set({
+        lookupsEnabled,
+        lookups: deriveLookups(files, parsedNames, showLookups, lookupsEnabled),
+      });
     },
     setShowLookup(groupKey, lookup) {
       const {files, parsedNames, lookupsEnabled} = get();

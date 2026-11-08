@@ -68,3 +68,19 @@ export async function forgetShow({
     [volumeId, folder, nameKey]
   );
 }
+
+export async function readSetting(key: string): Promise<string | null> {
+  const [row] = await database.select<Array<{value: string}>>(
+    'SELECT value FROM settings WHERE key = $1',
+    [key]
+  );
+  return row?.value ?? null;
+}
+
+export async function writeSetting(key: string, value: string): Promise<void> {
+  await database.execute(
+    `INSERT INTO settings (key, value) VALUES ($1, $2)
+     ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
+    [key, value]
+  );
+}

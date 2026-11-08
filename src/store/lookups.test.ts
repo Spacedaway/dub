@@ -83,6 +83,7 @@ function settle(): Promise<void> {
 }
 
 it('keeps a chosen show when the automatic search answers late', async () => {
+  useSession.getState().setLookupsEnabled(true);
   useSession
     .getState()
     .setFiles([file('/tv/Doctor.Who.2005.S01E01.720p.HDTV.x264-GRP.mkv')]);

@@ -11,9 +11,15 @@ import {baseName} from '@/domain/files/base-name';
 import type {GroupView, Lookups} from '@/domain/lookups/derive-lookups';
 import type {GroupStatus} from '@/domain/lookups/group-status';
 import {premiereYear, type TvShow} from '@/domain/lookups/tvmaze';
-import {chooseShow, lookUpAgain, retryLookup} from '@/store/lookups';
+import {
+  chooseShow,
+  lookUpAgain,
+  retryLookup,
+  switchLookups,
+} from '@/store/lookups';
 import {useSession} from '@/store/session-store';
 import {Button} from '@/ui/button';
+import {Switch} from '@/ui/switch';
 import {ShowPicker} from '@/features/shows/show-picker';
 import {SectionHeading} from '@/features/sidebar/section-heading';
 
@@ -25,9 +31,55 @@ export function ShowsSection({lookups}: {lookups: Lookups}) {
     names.filter((name, index) => names.indexOf(name) !== index)
   );
 
+  const isEnabled = useSession(state => state.lookupsEnabled !== false);
+  const isBusy = useSession(state => state.activity.kind !== 'idle');
+
   return (
     <section className="flex min-h-0 flex-col gap-2 px-4 pb-5">
-      <SectionHeading>Shows</SectionHeading>
+      <div className="flex items-center justify-between">
+        <SectionHeading>Shows</SectionHeading>
+        <Switch
+          size="sm"
+          checked={isEnabled}
+          disabled={isBusy}
+          onCheckedChange={checked => void switchLookups(checked)}
+          aria-label="Look up TV shows on TVmaze"
+          title="Look up TV shows on TVmaze"
+        />
+      </div>
+      {isEnabled ? (
+        <ShowList
+          lookups={lookups}
+          repeatedNames={repeatedNames}
+          onPick={setPickerKey}
+        />
+      ) : (
+        <p className="text-body text-sidebar-foreground">
+          Lookups are off, so names come from the files.
+        </p>
+      )}
+      {pickerView !== undefined && (
+        <ShowPicker
+          key={pickerView.group.key}
+          view={pickerView}
+          onClose={() => setPickerKey(null)}
+        />
+      )}
+    </section>
+  );
+}
+
+function ShowList({
+  lookups,
+  repeatedNames,
+  onPick,
+}: {
+  lookups: Lookups;
+  repeatedNames: Set<string>;
+  onPick: (groupKey: string) => void;
+}) {
+  return (
+    <>
       <p className="text-body text-sidebar-foreground">
         {summary(lookups.groups)}
       </p>
@@ -37,21 +89,14 @@ export function ShowsSection({lookups}: {lookups: Lookups}) {
             key={view.group.key}
             view={view}
             showFolder={repeatedNames.has(displayName(view))}
-            onPick={() => setPickerKey(view.group.key)}
+            onPick={() => onPick(view.group.key)}
           />
         ))}
       </ul>
       <p className="text-caption text-muted-foreground">
         TV data from TVmaze.com
       </p>
-      {pickerView !== undefined && (
-        <ShowPicker
-          key={pickerView.group.key}
-          view={pickerView}
-          onClose={() => setPickerKey(null)}
-        />
-      )}
-    </section>
+    </>
   );
 }
 
