@@ -55,6 +55,7 @@
     "rlib",
     "rmvb",
     "rusqlite",
+    "rustls",
     "serde",
     "shadcn",
     "Smallville",

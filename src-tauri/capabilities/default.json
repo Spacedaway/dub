@@ -6,6 +6,16 @@
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",
-    "dialog:allow-open"
+    "dialog:allow-open",
+    "sql:allow-select",
+    "sql:allow-execute",
+    {
+      "identifier": "http:default",
+      "allow": [
+        {
+          "url": "https://api.tvmaze.com/*"
+        }
+      ]
+    }
   ]
 }
