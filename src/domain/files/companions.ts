@@ -10,6 +10,15 @@ export function findCompanions(
   );
 }
 
+export function companionsOf(
+  videos: Array<ScannedFile>,
+  folderFiles: Array<ScannedFile>
+): Array<ScannedFile> {
+  const pairs = findCompanions(folderFiles);
+  const videoPaths = new Set(videos.map(video => video.path));
+  return folderFiles.filter(file => videoPaths.has(pairs.get(file.path) ?? ''));
+}
+
 export function orderCompanionsAfterVideos(
   files: Array<ScannedFile>,
   companions: ReadonlyMap<string, string>

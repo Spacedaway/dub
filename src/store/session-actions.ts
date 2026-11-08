@@ -1,5 +1,7 @@
 import {toast} from 'sonner';
 
+import {companionsOf} from '@/domain/files/companions';
+import {isVideoExtension} from '@/domain/parsing/parse-file-name';
 import {describeFailure, describeSkip} from '@/domain/preview/messages';
 import {errorMessage} from '@/ipc/command-error';
 import * as commands from '@/ipc/commands';
@@ -8,6 +10,7 @@ import type {
   BatchProgress,
   BatchResult,
   Plan,
+  ScannedFile,
 } from '@/ipc/contracts';
 import {useSession} from '@/store/session-store';
 
@@ -23,14 +26,13 @@ export async function addPaths(paths: Array<string>): Promise<void> {
   useSession.getState().setActivity({kind: 'scanning'});
   try {
     const response = await commands.scan({paths, folders: 'recursive'});
+    const companions = await companionsOfAddedVideos(paths, response.files);
     const current = useSession.getState().files;
-    const known = new Set(current.map(file => file.path));
-    useSession
-      .getState()
-      .setFiles([
-        ...current,
-        ...response.files.filter(file => !known.has(file.path)),
-      ]);
+    const added = new Map(
+      [...response.files, ...companions].map(file => [file.path, file])
+    );
+    for (const file of current) added.delete(file.path);
+    useSession.getState().setFiles([...current, ...added.values()]);
 
     if (response.problems.length > 0) {
       toast.warning(
@@ -41,6 +43,28 @@ export async function addPaths(paths: Array<string>): Promise<void> {
     toast.error(`Couldn't read the files: ${errorMessage(error)}`);
   } finally {
     useSession.getState().setActivity({kind: 'idle'});
+  }
+}
+
+async function companionsOfAddedVideos(
+  paths: Array<string>,
+  scanned: Array<ScannedFile>
+): Promise<Array<ScannedFile>> {
+  const addedPaths = new Set(paths);
+  const videos = scanned.filter(
+    file => addedPaths.has(file.path) && isVideoExtension(file.extension)
+  );
+  if (videos.length === 0) return [];
+
+  try {
+    const folders = [...new Set(videos.map(file => file.directory))];
+    const response = await commands.scan({paths: folders, folders: 'topLevel'});
+    return companionsOf(videos, response.files);
+  } catch (error) {
+    toast.warning(
+      `Couldn't look for subtitles and other files that go with the added videos: ${errorMessage(error)}`
+    );
+    return [];
   }
 }
 
