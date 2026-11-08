@@ -11,22 +11,34 @@ import {
 
 import type {ParsedName} from '@/domain/parsing/parsed-name';
 import type {PreviewRow} from '@/domain/preview/build-preview';
+import type {FileKind} from '@/domain/suggestions/classify-file';
+import type {EpisodeFlag} from '@/domain/suggestions/episode-flags';
+import {runEnds} from '@/domain/templates/render-template';
 import type {RowOutcome} from '@/ipc/contracts';
 import type {LivePlan} from '@/store/live-plan';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/ui/tooltip';
 import {rowStatus, type RowStatus} from '@/features/file-grid/row-status';
 
 const rowHeight = 34;
+const noFlags: Array<EpisodeFlag> = [];
+const kindLabels: Record<FileKind, string | null> = {
+  tvEpisode: 'TV',
+  datedEpisode: 'Dated',
+  numberedEpisode: 'Numbered',
+  film: 'Film',
+  generic: null,
+};
 const columns =
   'grid grid-cols-[1.25rem_minmax(0,1fr)_1rem_minmax(0,1fr)_minmax(0,12rem)] items-center gap-3';
 
 type FileListProps = {
   rows: Array<PreviewRow>;
+  flags: ReadonlyMap<string, Array<EpisodeFlag>>;
   outcomes: ReadonlyMap<string, RowOutcome>;
   livePlan: LivePlan;
 };
 
-export function FileList({rows, outcomes, livePlan}: FileListProps) {
+export function FileList({rows, flags, outcomes, livePlan}: FileListProps) {
   const scrollElement = useRef<HTMLDivElement>(null);
   // oxlint-disable-next-line react/incompatible-library -- only affects React Compiler memoisation.
   const virtualiser = useVirtualizer({
@@ -58,7 +70,12 @@ export function FileList({rows, outcomes, livePlan}: FileListProps) {
               <FileRow
                 key={row.file.path}
                 row={row}
-                status={rowStatus(row, outcomes, livePlan)}
+                status={rowStatus(
+                  row,
+                  flags.get(row.file.path) ?? noFlags,
+                  outcomes,
+                  livePlan
+                )}
                 style={{
                   transform: `translateY(${item.start}px)`,
                   height: rowHeight,
@@ -97,7 +114,7 @@ function FileRow({
         <p className="truncate" title={row.file.name}>
           {row.file.name}
         </p>
-        <DetectedSummary parsed={row.parsed} />
+        <DetectedSummary parsed={row.parsed} kind={row.kind} />
       </div>
       <ArrowRightIcon
         className={cn(
@@ -122,15 +139,24 @@ function FileRow({
   );
 }
 
-function DetectedSummary({parsed}: {parsed: ParsedName | null}) {
+function DetectedSummary({
+  parsed,
+  kind,
+}: {
+  parsed: ParsedName | null;
+  kind: FileKind;
+}) {
   if (parsed === null || parsed.name === null) return null;
-  const parts = [parsed.name];
+  const label = kindLabels[kind];
+  const parts = label === null ? [parsed.name] : [label, parsed.name];
   if (parsed.year !== null) parts.push(String(parsed.year));
   if (parsed.season !== null)
     parts.push(`S${String(parsed.season).padStart(2, '0')}`);
   if (parsed.episodes.length > 0)
     parts.push(
-      `E${parsed.episodes.map(episode => String(episode).padStart(2, '0')).join('-')}`
+      `E${runEnds(parsed.episodes)
+        .map(episode => String(episode).padStart(2, '0'))
+        .join('-')}`
     );
   if (parsed.airDate !== null) parts.push(parsed.airDate);
   return (
@@ -143,7 +169,16 @@ function DetectedSummary({parsed}: {parsed: ParsedName | null}) {
 function StatusIcon({status}: {status: RowStatus}) {
   switch (status.kind) {
     case 'unchanged':
-      return <span className="size-3.5" />;
+      return status.warnings.length === 0 ? (
+        <span className="size-3.5" />
+      ) : (
+        <ReasonsTooltip reasons={status.warnings}>
+          <TriangleAlertIcon
+            className="size-3.5 text-warning"
+            aria-label="Unchanged, with warnings"
+          />
+        </ReasonsTooltip>
+      );
     case 'pending':
       return (
         <CircleDashedIcon className="size-3.5 animate-spin-slow text-muted-foreground" />

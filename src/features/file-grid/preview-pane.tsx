@@ -4,7 +4,7 @@ import type {Preview} from '@/store/use-preview';
 import {FileList} from '@/features/file-grid/file-list';
 
 export function PreviewPane({preview}: {preview: Preview}) {
-  const {rows, outcomes, livePlan, readyCount, blockedCount} = preview;
+  const {rows, flags, outcomes, livePlan, readyCount, blockedCount} = preview;
 
   return (
     <main className="flex min-w-0 flex-1 flex-col bg-background">
@@ -31,7 +31,12 @@ export function PreviewPane({preview}: {preview: Preview}) {
       {rows.length === 0 ? (
         <EmptyState />
       ) : (
-        <FileList rows={rows} outcomes={outcomes} livePlan={livePlan} />
+        <FileList
+          rows={rows}
+          flags={flags}
+          outcomes={outcomes}
+          livePlan={livePlan}
+        />
       )}
     </main>
   );

@@ -2,18 +2,25 @@ import {useDeferredValue, useMemo} from 'react';
 
 import {
   buildPreview,
+  nameSourceFor,
   proposedRenames,
+  type NameSource,
   type PreviewRow,
 } from '@/domain/preview/build-preview';
-import {parseTemplate} from '@/domain/templates/parse-template';
-import type {TemplateParseResult} from '@/domain/templates/template';
+import {
+  counterIgnoresEpisodes,
+  episodeFlags,
+  type EpisodeFlag,
+} from '@/domain/suggestions/episode-flags';
 import type {Plan, RowOutcome} from '@/ipc/contracts';
 import {livePlanFor, type LivePlan} from '@/store/live-plan';
 import {useSession} from '@/store/session-store';
 
 export type Preview = {
-  template: TemplateParseResult;
+  nameSource: NameSource;
   rows: Array<PreviewRow>;
+  flags: ReadonlyMap<string, Array<EpisodeFlag>>;
+  counterIgnoresEpisodes: boolean;
   livePlan: LivePlan;
   outcomes: ReadonlyMap<string, RowOutcome>;
   readyPlan: Plan | null;
@@ -28,14 +35,24 @@ export function usePreview(): Preview {
   const diskGeneration = useSession(state => state.diskGeneration);
   const planResult = useSession(state => state.planResult);
 
-  const template = useMemo(
-    () => parseTemplate(templateSource),
+  const nameSource = useMemo(
+    () => nameSourceFor(templateSource),
     [templateSource]
   );
-  const deferredTemplate = useDeferredValue(template);
+  const deferredNameSource = useDeferredValue(nameSource);
   const rows = useMemo(
-    () => buildPreview(files, parsedNames, deferredTemplate),
-    [files, parsedNames, deferredTemplate]
+    () => buildPreview(files, parsedNames, deferredNameSource),
+    [files, parsedNames, deferredNameSource]
+  );
+  const flags = useMemo(
+    () => episodeFlags(files, parsedNames),
+    [files, parsedNames]
+  );
+  const ignoresEpisodes = useMemo(
+    () =>
+      nameSource.kind === 'parsed' &&
+      counterIgnoresEpisodes(nameSource.template, parsedNames),
+    [nameSource, parsedNames]
   );
   const renames = useMemo(() => proposedRenames(rows), [rows]);
   const livePlan = useMemo(
@@ -46,8 +63,10 @@ export function usePreview(): Preview {
   const counts = useMemo(() => countOutcomes(outcomes), [outcomes]);
 
   return {
-    template,
+    nameSource,
     rows,
+    flags,
+    counterIgnoresEpisodes: ignoresEpisodes,
     livePlan,
     outcomes,
     readyPlan: livePlan.kind === 'planned' ? livePlan.plan : null,

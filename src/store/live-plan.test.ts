@@ -74,6 +74,15 @@ function plannedTargets(): string | undefined {
 }
 
 describe('followPlanning', () => {
+  it('plans the suggested names while the template is empty', async () => {
+    useSession.getState().setFiles([file('Show.S01E01.mkv')]);
+    await vi.advanceTimersByTimeAsync(planningDelayMs);
+
+    expect(pendingPlans.map(({request}) => targetNames(request))).toEqual([
+      'Show - S01E01.mkv',
+    ]);
+  });
+
   it('plans once the names stop changing', async () => {
     useSession.getState().setTemplateSource('one');
     await vi.advanceTimersByTimeAsync(planningDelayMs - 1);

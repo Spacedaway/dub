@@ -1,5 +1,8 @@
-import {buildPreview, proposedRenames} from '@/domain/preview/build-preview';
-import {parseTemplate} from '@/domain/templates/parse-template';
+import {
+  buildPreview,
+  nameSourceFor,
+  proposedRenames,
+} from '@/domain/preview/build-preview';
 import {errorMessage} from '@/ipc/command-error';
 import * as commands from '@/ipc/commands';
 import type {Plan, ProposedRename} from '@/ipc/contracts';
@@ -57,7 +60,7 @@ async function requestPlan(): Promise<void> {
   const {files, parsedNames, templateSource, diskGeneration, planResult} =
     useSession.getState();
   const renames = proposedRenames(
-    buildPreview(files, parsedNames, parseTemplate(templateSource))
+    buildPreview(files, parsedNames, nameSourceFor(templateSource))
   );
   const key = planKey(renames, diskGeneration);
   if (renames.length === 0 || planResult?.key === key) return;

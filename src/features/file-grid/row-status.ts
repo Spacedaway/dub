@@ -1,41 +1,53 @@
 import type {PreviewRow} from '@/domain/preview/build-preview';
-import {describeProblem, describeWarning} from '@/domain/preview/messages';
+import {
+  describeFlag,
+  describeProblem,
+  describeWarning,
+} from '@/domain/preview/messages';
+import type {EpisodeFlag} from '@/domain/suggestions/episode-flags';
 import type {RowOutcome} from '@/ipc/contracts';
 import type {LivePlan} from '@/store/live-plan';
 
 export type RowStatus =
-  | {kind: 'unchanged'}
+  | {kind: 'unchanged'; warnings: Array<string>}
   | {kind: 'pending'}
   | {kind: 'ready'; warnings: Array<string>}
   | {kind: 'blocked'; reasons: Array<string>};
 
 export function rowStatus(
   row: PreviewRow,
+  flags: Array<EpisodeFlag>,
   outcomes: ReadonlyMap<string, RowOutcome>,
   livePlan: LivePlan
 ): RowStatus {
+  const flagWarnings = flags.map(describeFlag);
   switch (row.proposal.kind) {
     case 'unchanged':
-      return {kind: 'unchanged'};
+    case 'templateInvalid':
+      return {kind: 'unchanged', warnings: flagWarnings};
     case 'emptyName':
       return {
         kind: 'blocked',
-        reasons: ["The template leaves nothing usable for this file's name."],
+        reasons: [
+          "Nothing usable is left for this file's name.",
+          ...flagWarnings,
+        ],
       };
-    case 'templateInvalid':
-      return {kind: 'unchanged'};
     case 'renamed':
       break;
   }
 
   if (livePlan.kind === 'failed')
-    return {kind: 'blocked', reasons: [livePlan.message]};
+    return {kind: 'blocked', reasons: [livePlan.message, ...flagWarnings]};
   const outcome = outcomes.get(row.file.path);
   if (outcome === undefined) return {kind: 'pending'};
   if (outcome.kind === 'blocked') {
-    return {kind: 'blocked', reasons: outcome.problems.map(describeProblem)};
+    return {
+      kind: 'blocked',
+      reasons: [...outcome.problems.map(describeProblem), ...flagWarnings],
+    };
   }
-  const warnings = outcome.warnings.map(describeWarning);
+  const warnings = [...outcome.warnings.map(describeWarning), ...flagWarnings];
   if (row.missingTags.length > 0) {
     warnings.push(
       `No value for ${row.missingTags.map(tag => `<${tag}>`).join(', ')}.`

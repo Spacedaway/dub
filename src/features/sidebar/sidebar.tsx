@@ -13,7 +13,7 @@ import {Button} from '@/ui/button';
 import {TemplateField} from '@/features/step-editor/template-field';
 
 export function Sidebar({preview}: {preview: Preview}) {
-  const {template, readyPlan, readyCount} = preview;
+  const {nameSource, counterIgnoresEpisodes, readyPlan, readyCount} = preview;
   const files = useSession(state => state.files);
   const templateSource = useSession(state => state.templateSource);
   const setTemplateSource = useSession(state => state.setTemplateSource);
@@ -66,7 +66,8 @@ export function Sidebar({preview}: {preview: Preview}) {
         <SectionHeading>Rename to</SectionHeading>
         <TemplateField
           source={templateSource}
-          parsed={template}
+          nameSource={nameSource}
+          counterIgnoresEpisodes={counterIgnoresEpisodes}
           onChange={setTemplateSource}
         />
       </section>

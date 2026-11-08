@@ -6,8 +6,6 @@ import type {ParsedName} from '@/domain/parsing/parsed-name';
 import type {BatchKind, ScannedFile} from '@/ipc/contracts';
 import type {PlanResult} from '@/store/live-plan';
 
-export const defaultTemplate = '<Original>';
-
 export type Activity =
   | {kind: 'idle'}
   | {kind: 'scanning'}
@@ -43,7 +41,7 @@ export const useSession = create<SessionState & SessionActions>()(
   (set, get) => ({
     files: [],
     parsedNames: new Map(),
-    templateSource: defaultTemplate,
+    templateSource: '',
     activity: {kind: 'idle'},
     undoableBatchId: null,
     diskGeneration: 0,

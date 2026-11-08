@@ -1,9 +1,8 @@
 import {useRef} from 'react';
 
-import type {
-  TemplateError,
-  TemplateParseResult,
-} from '@/domain/templates/template';
+import type {NameSource} from '@/domain/preview/build-preview';
+import type {TemplateError} from '@/domain/templates/template';
+import {Button} from '@/ui/button';
 import {Input} from '@/ui/input';
 
 const suggestedTags = [
@@ -19,11 +18,17 @@ const suggestedTags = [
 
 type TemplateFieldProps = {
   source: string;
-  parsed: TemplateParseResult;
+  nameSource: NameSource;
+  counterIgnoresEpisodes: boolean;
   onChange: (source: string) => void;
 };
 
-export function TemplateField({source, parsed, onChange}: TemplateFieldProps) {
+export function TemplateField({
+  source,
+  nameSource,
+  counterIgnoresEpisodes,
+  onChange,
+}: TemplateFieldProps) {
   const input = useRef<HTMLInputElement>(null);
 
   function insertTag(tag: string) {
@@ -47,17 +52,33 @@ export function TemplateField({source, parsed, onChange}: TemplateFieldProps) {
         ref={input}
         value={source}
         onChange={event => onChange(event.target.value)}
+        placeholder="Suggested name for each file"
         spellCheck={false}
         autoCorrect="off"
         autoCapitalize="off"
-        aria-invalid={parsed.kind === 'invalid'}
+        aria-invalid={nameSource.kind === 'invalid'}
         aria-label="Name template"
-        className="font-mono text-xs select-text"
+        className="font-mono text-xs select-text placeholder:font-sans"
       />
-      {parsed.kind === 'invalid' && (
+      {nameSource.kind === 'invalid' && (
         <p className="text-xs text-destructive">
-          {describeTemplateError(parsed.error)}
+          {describeTemplateError(nameSource.error)}
         </p>
+      )}
+      {counterIgnoresEpisodes && (
+        <p className="text-xs text-warning">
+          &lt;Inc&gt; numbers files in list order and ignores the episode
+          numbers in their names. Use &lt;Episode&gt; to keep them.
+        </p>
+      )}
+      {nameSource.kind !== 'suggested' && (
+        <Button
+          variant="ghost"
+          size="xs"
+          className="self-start"
+          onClick={() => onChange('')}>
+          Use suggestions
+        </Button>
       )}
       <div className="flex flex-wrap gap-1">
         {suggestedTags.map(tag => (
