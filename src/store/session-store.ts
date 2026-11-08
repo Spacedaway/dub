@@ -14,7 +14,7 @@ import type {ShowLookup} from '@/domain/lookups/group-status';
 import {lookupGroups} from '@/domain/lookups/lookup-groups';
 import {parseFileName} from '@/domain/parsing/parse-file-name';
 import type {ParsedName} from '@/domain/parsing/parsed-name';
-import type {BatchKind, ScannedFile} from '@/ipc/contracts';
+import type {BatchKind, ScannedFile, VolumeInfo} from '@/ipc/contracts';
 import type {PlanResult} from '@/store/live-plan';
 
 export type Activity =
@@ -37,6 +37,7 @@ type SessionState = {
   diskGeneration: number;
   planResult: PlanResult | null;
   isDraggingOver: boolean;
+  volumes: ReadonlyMap<string, VolumeInfo>;
   lookupsEnabled: boolean | null;
   showLookups: ReadonlyMap<string, ShowLookup>;
   lookups: Lookups;
@@ -51,6 +52,7 @@ type SessionActions = {
   setPlanResult: (planResult: PlanResult) => void;
   setDraggingOver: (isDraggingOver: boolean) => void;
   setShowLookup: (groupKey: string, lookup: ShowLookup | null) => void;
+  addVolumes: (volumes: Array<VolumeInfo>) => void;
 };
 
 export const useSession = create<SessionState & SessionActions>()(
@@ -64,6 +66,7 @@ export const useSession = create<SessionState & SessionActions>()(
     diskGeneration: 0,
     planResult: null,
     isDraggingOver: false,
+    volumes: new Map(),
     lookupsEnabled: true,
     showLookups: new Map(),
     lookups: noLookups,
@@ -115,6 +118,11 @@ export const useSession = create<SessionState & SessionActions>()(
     },
     setDraggingOver(isDraggingOver) {
       if (get().isDraggingOver !== isDraggingOver) set({isDraggingOver});
+    },
+    addVolumes(volumes) {
+      const known = new Map(get().volumes);
+      for (const volume of volumes) known.set(volume.id, volume);
+      set({volumes: known});
     },
     setShowLookup(groupKey, lookup) {
       const {files, parsedNames, lookupsEnabled} = get();

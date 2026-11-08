@@ -1,6 +1,10 @@
+import {toast} from 'sonner';
+
+import {folderKey} from '@/domain/lookups/folder-key';
 import {
   automaticCandidate,
   hasNamesakes,
+  type GroupStatus,
   type ShowLookup,
 } from '@/domain/lookups/group-status';
 import type {LookupGroup} from '@/domain/lookups/lookup-groups';
@@ -12,6 +16,7 @@ import {
   type ShowListing,
   type TvShow,
 } from '@/domain/lookups/tvmaze';
+import {comparableName} from '@/domain/text/comparable-name';
 import * as cache from '@/ipc/cache-db';
 import {errorMessage} from '@/ipc/command-error';
 import * as tvmaze from '@/ipc/tvmaze';
@@ -45,12 +50,43 @@ export function chooseShow(
     const listing = await showListing(show.id, stillWanted);
     if (listing === null)
       throw new Error(`TVmaze no longer lists ${show.name}.`);
+    await remember(group, {showId: show.id, namesakes}, show);
     return {kind: 'chosen', listing, namesakes, how: 'picked'};
   });
 }
 
 export function declineShow(group: LookupGroup): Promise<void> {
-  return runLookup(group.key, async () => ({kind: 'declined'}));
+  const previous = matchedShow(currentStatus(group));
+  return runLookup(group.key, async () => {
+    await remember(group, {showId: null, namesakes: false}, null);
+    if (previous !== null) await forget(group, comparableName(previous.name));
+    return {kind: 'declined'};
+  });
+}
+
+export async function lookUpAgain(group: LookupGroup): Promise<void> {
+  await forget(group, group.nameKey);
+  return retryLookup(group);
+}
+
+export async function rememberAppliedShows(
+  renamedPaths: Array<string>
+): Promise<void> {
+  const renamed = new Set(renamedPaths);
+  const automatic = useSession
+    .getState()
+    .lookups.groups.flatMap(({group, status}) =>
+      status.kind === 'matched' &&
+      status.how === 'automatic' &&
+      group.members.some(member => renamed.has(member.path))
+        ? [{group, show: status.listing.show, namesakes: status.namesakes}]
+        : []
+    );
+  await Promise.all(
+    automatic.map(({group, show, namesakes}) =>
+      remember(group, {showId: show.id, namesakes}, show)
+    )
+  );
 }
 
 export function retryLookup(group: LookupGroup): Promise<void> {
@@ -89,6 +125,21 @@ async function lookUp(
   group: LookupGroup,
   stillWanted: StillWanted
 ): Promise<ShowLookup> {
+  const remembered = await rememberedShow(group);
+  if (remembered?.showId === null) return {kind: 'declined'};
+  if (remembered !== null) {
+    const listing = await showListing(remembered.showId, stillWanted);
+    if (listing !== null) {
+      return {
+        kind: 'chosen',
+        listing,
+        namesakes: remembered.namesakes,
+        how: 'remembered',
+      };
+    }
+    await forget(group, group.nameKey);
+  }
+
   const candidates = readSearchResults(
     await tvmaze.searchShows(group.query, stillWanted)
   );
@@ -199,6 +250,43 @@ async function storeListing(listing: ShowListing): Promise<void> {
   }
 }
 
+async function rememberedShow(
+  group: LookupGroup
+): Promise<cache.RememberedShow | null> {
+  try {
+    return await cache.readRememberedShow(parsedNameKey(group));
+  } catch (error) {
+    console.warn(`Couldn't read the choice for ${group.query}`, error);
+    return null;
+  }
+}
+
+async function remember(
+  group: LookupGroup,
+  choice: cache.RememberedShow,
+  alsoNamed: TvShow | null
+): Promise<void> {
+  const parsed = parsedNameKey(group);
+  const nameKeys = new Set([parsed.nameKey]);
+  if (alsoNamed !== null) nameKeys.add(comparableName(alsoNamed.name));
+  try {
+    for (const nameKey of nameKeys)
+      await cache.rememberShow({...parsed, nameKey}, choice);
+  } catch (error) {
+    toast.warning(
+      `Couldn't save the choice for ${group.query}: ${errorMessage(error)}`
+    );
+  }
+}
+
+async function forget(group: LookupGroup, nameKey: string): Promise<void> {
+  try {
+    await cache.forgetShow({...parsedNameKey(group), nameKey});
+  } catch (error) {
+    console.warn(`Couldn't forget the choice for ${group.query}`, error);
+  }
+}
+
 function knownNamesakes(
   group: LookupGroup,
   show: TvShow,
@@ -216,6 +304,21 @@ function knownNamesakes(
     [...candidates, ...searched].map(candidate => [candidate.id, candidate])
   );
   return hasNamesakes(show, [...shows.values()]);
+}
+
+function parsedNameKey(group: LookupGroup): cache.FolderShowKey {
+  const volume = useSession.getState().volumes.get(group.volumeId);
+  return {...folderKey(group.showFolder, volume), nameKey: group.nameKey};
+}
+
+function currentStatus(group: LookupGroup): GroupStatus | undefined {
+  return useSession
+    .getState()
+    .lookups.groups.find(view => view.group.key === group.key)?.status;
+}
+
+function matchedShow(status: GroupStatus | undefined): TvShow | null {
+  return status?.kind === 'matched' ? status.listing.show : null;
 }
 
 function listingOf(lookup: ShowLookup): ShowListing | null {

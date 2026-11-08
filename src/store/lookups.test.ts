@@ -27,6 +27,8 @@ vi.mock('@/ipc/tvmaze', () => ({
 vi.mock('@/ipc/cache-db', () => ({
   readCachedShow: () => Promise.resolve(null),
   writeCachedShow: () => Promise.resolve(),
+  readRememberedShow: () => Promise.resolve(null),
+  rememberShow: () => Promise.resolve(),
 }));
 
 let stopLookups: (() => void) | undefined;
@@ -87,6 +89,7 @@ it('keeps a chosen show when the automatic search answers late', async () => {
   stopLookups = followLookups();
   const [view] = useSession.getState().lookups.groups;
   if (view === undefined) throw new Error('Expected one show');
+  await settle();
   expect(pendingRequests.map(({target}) => target)).toEqual([
     'search Doctor Who',
   ]);

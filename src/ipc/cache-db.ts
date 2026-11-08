@@ -23,3 +23,48 @@ export async function writeCachedShow(
     [showId, body, fetchedAt]
   );
 }
+
+export type FolderShowKey = {volumeId: string; folder: string; nameKey: string};
+
+export type RememberedShow = {showId: number | null; namesakes: boolean};
+
+export async function readRememberedShow({
+  volumeId,
+  folder,
+  nameKey,
+}: FolderShowKey): Promise<RememberedShow | null> {
+  const [row] = await database.select<
+    Array<{show_id: number | null; namesakes: number}>
+  >(
+    `SELECT show_id, namesakes FROM remembered_shows
+     WHERE volume_id = $1 AND folder = $2 AND name_key = $3`,
+    [volumeId, folder, nameKey]
+  );
+  return row === undefined
+    ? null
+    : {showId: row.show_id, namesakes: row.namesakes === 1};
+}
+
+export async function rememberShow(
+  {volumeId, folder, nameKey}: FolderShowKey,
+  {showId, namesakes}: RememberedShow
+): Promise<void> {
+  await database.execute(
+    `INSERT INTO remembered_shows (volume_id, folder, name_key, show_id, namesakes, chosen_at)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     ON CONFLICT (volume_id, folder, name_key) DO UPDATE SET
+       show_id = excluded.show_id, namesakes = excluded.namesakes, chosen_at = excluded.chosen_at`,
+    [volumeId, folder, nameKey, showId, namesakes ? 1 : 0, Date.now()]
+  );
+}
+
+export async function forgetShow({
+  volumeId,
+  folder,
+  nameKey,
+}: FolderShowKey): Promise<void> {
+  await database.execute(
+    `DELETE FROM remembered_shows WHERE volume_id = $1 AND folder = $2 AND name_key = $3`,
+    [volumeId, folder, nameKey]
+  );
+}

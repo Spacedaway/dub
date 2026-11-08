@@ -12,6 +12,7 @@ import type {
   Plan,
   ScannedFile,
 } from '@/ipc/contracts';
+import {rememberAppliedShows} from '@/store/lookups';
 import {useSession} from '@/store/session-store';
 
 export async function addPaths(paths: Array<string>): Promise<void> {
@@ -26,6 +27,7 @@ export async function addPaths(paths: Array<string>): Promise<void> {
   useSession.getState().setActivity({kind: 'scanning'});
   try {
     const response = await commands.scan({paths, folders: 'recursive'});
+    useSession.getState().addVolumes(response.volumes);
     const companions = await companionsOfAddedVideos(paths, response.files);
     const current = useSession.getState().files;
     const added = new Map(
@@ -90,6 +92,8 @@ export async function applyPlan(plan: Plan): Promise<void> {
   const result = await runBatch('rename', plan.steps.length, onProgress =>
     commands.execute({kind: 'plan', plan}, onProgress)
   );
+  if (result !== null)
+    await rememberAppliedShows(plan.steps.map(step => step.rowId));
   await finishBatch(
     result,
     plan.steps.flatMap(step => [step.from, step.to])
@@ -178,6 +182,7 @@ async function refreshFiles(paths: Array<string>): Promise<void> {
   if (unique.length === 0) return useSession.getState().setFiles([]);
   try {
     const response = await commands.scan({paths: unique, folders: 'topLevel'});
+    useSession.getState().addVolumes(response.volumes);
     useSession.getState().setFiles(response.files);
   } catch (error) {
     toast.error(`Couldn't refresh the file list: ${errorMessage(error)}`);

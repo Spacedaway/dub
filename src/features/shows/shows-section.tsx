@@ -11,7 +11,7 @@ import {baseName} from '@/domain/files/base-name';
 import type {GroupView, Lookups} from '@/domain/lookups/derive-lookups';
 import type {GroupStatus} from '@/domain/lookups/group-status';
 import {premiereYear, type TvShow} from '@/domain/lookups/tvmaze';
-import {chooseShow, retryLookup} from '@/store/lookups';
+import {chooseShow, lookUpAgain, retryLookup} from '@/store/lookups';
 import {useSession} from '@/store/session-store';
 import {Button} from '@/ui/button';
 import {ShowPicker} from '@/features/shows/show-picker';
@@ -109,7 +109,9 @@ function ShowRow({
           variant="outline"
           size="xs"
           disabled={isBusy}
-          onClick={() => retryLookup(group)}>
+          onClick={() =>
+            status.kind === 'failed' ? retryLookup(group) : lookUpAgain(group)
+          }>
           {status.kind === 'failed' ? 'Retry' : 'Look up'}
         </Button>
       )}
