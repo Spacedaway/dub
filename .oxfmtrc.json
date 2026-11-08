@@ -1,0 +1,86 @@
+{
+  "arrowParens": "avoid",
+  "bracketSameLine": true,
+  "bracketSpacing": false,
+  "singleQuote": true,
+  "trailingComma": "es5",
+  "semi": true,
+  "tabWidth": 2,
+  "useTabs": false,
+  "printWidth": 80,
+  "endOfLine": "lf",
+  "jsxSingleQuote": false,
+  "sortPackageJson": false,
+  "sortTailwindcss": {
+    "stylesheet": "src/styles/main.css",
+    "functions": ["cn", "cva"]
+  },
+  "sortImports": {
+    "newlinesBetween": false,
+    "customGroups": [
+      {
+        "groupName": "react",
+        "elementNamePattern": ["react", "react/**"]
+      },
+      {
+        "groupName": "alias-domain",
+        "elementNamePattern": ["@/domain", "@/domain/**"]
+      },
+      {
+        "groupName": "alias-ipc",
+        "elementNamePattern": ["@/ipc", "@/ipc/**"]
+      },
+      {
+        "groupName": "alias-store",
+        "elementNamePattern": ["@/store", "@/store/**"]
+      },
+      {
+        "groupName": "alias-ui",
+        "elementNamePattern": ["@/ui", "@/ui/**"]
+      },
+      {
+        "groupName": "alias-shared",
+        "elementNamePattern": ["@/shared", "@/shared/**"]
+      },
+      {
+        "groupName": "alias-features",
+        "elementNamePattern": ["@/features", "@/features/**"]
+      },
+      {
+        "groupName": "alias-styles",
+        "elementNamePattern": ["@/styles", "@/styles/**"]
+      },
+      {
+        "groupName": "alias-app",
+        "elementNamePattern": ["@/app", "@/app/**"]
+      }
+    ],
+    "groups": [
+      "react",
+      ["builtin", "external", "internal", "subpath", "unknown"],
+      {
+        "newlinesBetween": true
+      },
+      "alias-domain",
+      "alias-ipc",
+      "alias-store",
+      "alias-ui",
+      "alias-shared",
+      "alias-features",
+      "alias-styles",
+      "alias-app",
+      {
+        "newlinesBetween": true
+      },
+      ["parent", "sibling", "index"]
+    ]
+  },
+  "ignorePatterns": [
+    "docs/",
+    "node_modules/",
+    "pnpm-lock.yaml",
+    "dist/",
+    "src-tauri/target/",
+    "src-tauri/gen/"
+  ]
+}

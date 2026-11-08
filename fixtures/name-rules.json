@@ -1,0 +1,214 @@
+{
+  "cases": [
+    {
+      "description": "colon inside a word becomes a dash",
+      "stem": "Re:Zero",
+      "extension": ".mkv",
+      "sanitised": "Re-Zero.mkv",
+      "rawIsValid": false
+    },
+    {
+      "description": "colon followed by a space becomes a spaced dash",
+      "stem": "Title: Subtitle",
+      "extension": ".mkv",
+      "sanitised": "Title - Subtitle.mkv",
+      "rawIsValid": false
+    },
+    {
+      "description": "forward slash becomes a plus",
+      "stem": "Fate/Zero",
+      "extension": ".mkv",
+      "sanitised": "Fate+Zero.mkv",
+      "rawIsValid": false
+    },
+    {
+      "description": "backslash becomes a plus",
+      "stem": "AC\\DC",
+      "extension": ".flac",
+      "sanitised": "AC+DC.flac",
+      "rawIsValid": false
+    },
+    {
+      "description": "question mark is removed",
+      "stem": "What If?",
+      "extension": ".mkv",
+      "sanitised": "What If.mkv",
+      "rawIsValid": false
+    },
+    {
+      "description": "asterisk becomes a dash",
+      "stem": "M*A*S*H",
+      "extension": ".mkv",
+      "sanitised": "M-A-S-H.mkv",
+      "rawIsValid": false
+    },
+    {
+      "description": "double quotes become single quotes",
+      "stem": "The \"Best\" Bits",
+      "extension": ".mkv",
+      "sanitised": "The 'Best' Bits.mkv",
+      "rawIsValid": false
+    },
+    {
+      "description": "angle brackets and pipes are removed and spaces collapse",
+      "stem": "<Tag> | Pipe",
+      "extension": ".mkv",
+      "sanitised": "Tag Pipe.mkv",
+      "rawIsValid": false
+    },
+    {
+      "description": "reserved name gains an underscore",
+      "stem": "CON",
+      "extension": ".txt",
+      "sanitised": "CON_.txt",
+      "rawIsValid": false
+    },
+    {
+      "description": "reserved name is matched regardless of case",
+      "stem": "lpt1",
+      "extension": "",
+      "sanitised": "lpt1_",
+      "rawIsValid": false
+    },
+    {
+      "description": "superscript reserved name",
+      "stem": "COM¹",
+      "extension": ".log",
+      "sanitised": "COM¹_.log",
+      "rawIsValid": false
+    },
+    {
+      "description": "reserved name before a later dot",
+      "stem": "Nul.2019",
+      "extension": ".mkv",
+      "sanitised": "Nul_.2019.mkv",
+      "rawIsValid": false
+    },
+    {
+      "description": "reserved name with a space before the first dot",
+      "stem": "Con .tar",
+      "extension": ".gz",
+      "sanitised": "Con_.tar.gz",
+      "rawIsValid": false
+    },
+    {
+      "description": "a name that only starts with a reserved name is kept",
+      "stem": "CONSOLE",
+      "extension": ".txt",
+      "sanitised": "CONSOLE.txt",
+      "rawIsValid": true
+    },
+    {
+      "description": "a reserved name followed by more digits is kept",
+      "stem": "COM10",
+      "extension": "",
+      "sanitised": "COM10",
+      "rawIsValid": true
+    },
+    {
+      "description": "a word starting with a reserved name is kept",
+      "stem": "Concert",
+      "extension": ".mkv",
+      "sanitised": "Concert.mkv",
+      "rawIsValid": true
+    },
+    {
+      "description": "leading dot is stripped so the file is not hidden",
+      "stem": ".hack//Sign",
+      "extension": ".mkv",
+      "sanitised": "hack++Sign.mkv",
+      "rawIsValid": false
+    },
+    {
+      "description": "trailing dot is stripped when there is no extension",
+      "stem": "Ends with dot.",
+      "extension": "",
+      "sanitised": "Ends with dot",
+      "rawIsValid": false
+    },
+    {
+      "description": "trailing space is stripped when there is no extension",
+      "stem": "Ends with space ",
+      "extension": "",
+      "sanitised": "Ends with space",
+      "rawIsValid": false
+    },
+    {
+      "description": "runs of spaces collapse and ends are trimmed",
+      "stem": "  Lots   of   space  ",
+      "extension": ".mkv",
+      "sanitised": "Lots of space.mkv",
+      "rawIsValid": true
+    },
+    {
+      "description": "decomposed accents are recomposed to NFC",
+      "stem": "Pokémon",
+      "extension": ".mkv",
+      "sanitised": "Pokémon.mkv",
+      "rawIsValid": false
+    },
+    {
+      "description": "control characters become spaces",
+      "stem": "Tab\tName",
+      "extension": ".mkv",
+      "sanitised": "Tab Name.mkv",
+      "rawIsValid": false
+    },
+    {
+      "description": "dots inside a name are kept",
+      "stem": "Agents of S.H.I.E.L.D.",
+      "extension": ".mkv",
+      "sanitised": "Agents of S.H.I.E.L.D..mkv",
+      "rawIsValid": true
+    },
+    {
+      "description": "an already clean name is unchanged",
+      "stem": "Smallville - S01E01 - Pilot",
+      "extension": ".mkv",
+      "sanitised": "Smallville - S01E01 - Pilot.mkv",
+      "rawIsValid": true
+    },
+    {
+      "description": "a bare dot left from a name like 'trailing.' is not kept as an extension",
+      "stem": "Trailing",
+      "extension": ".",
+      "sanitised": "Trailing",
+      "rawIsValid": false
+    },
+    {
+      "description": "ideographic spaces are part of the name and are kept",
+      "stem": "葬送の　フリーレン",
+      "extension": ".mkv",
+      "sanitised": "葬送の　フリーレン.mkv",
+      "rawIsValid": true
+    },
+    {
+      "description": "non-Latin text is kept",
+      "stem": "葬送のフリーレン - 01",
+      "extension": ".mkv",
+      "sanitised": "葬送のフリーレン - 01.mkv",
+      "rawIsValid": true
+    },
+    {
+      "description": "a long stem is shortened and the extension kept",
+      "stem": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "extension": ".mkv",
+      "sanitised": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.mkv",
+      "rawIsValid": false
+    },
+    {
+      "description": "a bare dot isn't put back after shortening",
+      "stem": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "extension": ".",
+      "sanitised": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "rawIsValid": false
+    },
+    {
+      "description": "shortening never splits a character made of two UTF-16 units",
+      "stem": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "extension": ".mkv",
+      "sanitised": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀.mkv",
+      "rawIsValid": false
+    }
+  ]
+}

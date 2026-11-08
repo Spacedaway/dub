@@ -1,0 +1,32 @@
+
+# Dependencies
+node_modules
+.venv/
+.cache/
+
+# Build and test output
+docs/
+dist
+dist-ssr
+.component-lab/
+.contact-sheets/
+test-results/
+playwright-report/
+
+# Logs
+logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Local env
+*.local
+.claude
+
+# Editor and OS
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea
+.DS_Store
+*.swp

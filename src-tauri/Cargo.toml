@@ -1,0 +1,45 @@
+[package]
+name = "dub"
+version = "0.1.0"
+description = "Batch file renamer"
+edition = "2024"
+
+[lib]
+name = "dub_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri-plugin-dialog = "2"
+tauri-plugin-sql = { version = "2.6.0", features = ["sqlite"] }
+# Pinned to link the same libsqlite3-sys as tauri-plugin-sql's sqlx.
+rusqlite = { version = "=0.32.1", features = ["bundled"] }
+thiserror = "2"
+unicode-normalization = "0.1.26"
+uuid = { version = "1.29.1", features = ["v7"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2.191"
+
+[target."cfg(windows)".dependencies]
+windows-sys = { version = "0.61.2", features = [
+  "Win32_Foundation",
+  "Win32_Storage_FileSystem",
+  "Win32_System_SystemServices",
+] }
+
+[dev-dependencies]
+tempfile = "3"
