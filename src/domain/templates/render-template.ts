@@ -130,15 +130,20 @@ function formatNumberList(
 ): string {
   const prefix = /([A-Za-z]+)$/.exec(textBefore)?.[1] ?? '';
   const separator = `-${prefix}`;
+  return runEnds(values)
+    .map(value => formatNumber(value, modifiers))
+    .join(separator);
+}
+
+export function runEnds(values: Array<number>): Array<number> {
   const isConsecutiveRun =
     values.length > 2 &&
     values.every(
       (value, index) => index === 0 || value === (values[index - 1] ?? 0) + 1
     );
-  const shown = isConsecutiveRun
+  return isConsecutiveRun
     ? [values[0] ?? 0, values[values.length - 1] ?? 0]
     : values;
-  return shown.map(value => formatNumber(value, modifiers)).join(separator);
 }
 
 function applyCase(text: string, modifiers: Array<TagModifier>): string {

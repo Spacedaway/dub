@@ -1,3 +1,4 @@
+import type {EpisodeFlag} from '@/domain/suggestions/episode-flags';
 import type {
   PlanProblem,
   PlanWarning,
@@ -78,5 +79,20 @@ export function describeSkip(reason: SkipReason): string {
       return "it's no longer there";
     case 'originalNameTaken':
       return 'another file now has its original name';
+  }
+}
+
+export function describeFlag(flag: EpisodeFlag): string {
+  switch (flag.kind) {
+    case 'gapBefore':
+      return flag.from === flag.to
+        ? `Episode ${flag.from} is missing before this one.`
+        : `Episodes ${flag.from}–${flag.to} are missing before this one.`;
+    case 'duplicateEpisode':
+      return flag.episodes.length === 1
+        ? `Another file is also episode ${flag.episodes.join(', ')}.`
+        : `Another file also has episodes ${flag.episodes.join(', ')}.`;
+    case 'decimalEpisode':
+      return `Episode ${flag.episode} is usually a special.`;
   }
 }
