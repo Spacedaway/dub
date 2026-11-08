@@ -16,7 +16,12 @@ export type ParsedName = {
   nameFromFolder: boolean;
 };
 
-export type ParseInput = {stem: string; extension: string; folderName: string};
+export type ParseInput = {
+  stem: string;
+  extension: string;
+  folderName: string;
+  parentFolderName: string | null;
+};
 
 export function emptyParsedName(parser: ParserId): ParsedName {
   return {

@@ -45,8 +45,10 @@
     "mntfromname",
     "mntonname",
     "RDONLY",
+    "readnfo",
     "renamer",
     "renamex",
+    "rerip",
     "rfind",
     "rlib",
     "rmvb",
@@ -64,6 +66,7 @@
     "tsgolint",
     "Uninit",
     "volattr",
+    "vostfr",
     "writable"
   ]
 }
