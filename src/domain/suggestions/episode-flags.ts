@@ -2,6 +2,7 @@ import type {ParsedName} from '@/domain/parsing/parsed-name';
 import {classifyFile} from '@/domain/suggestions/classify-file';
 import {templateTags} from '@/domain/templates/parse-template';
 import type {Template} from '@/domain/templates/template';
+import {comparableName} from '@/domain/text/comparable-name';
 import type {ScannedFile} from '@/ipc/contracts';
 
 export type EpisodeFlag =
@@ -62,13 +63,6 @@ function episodeGroups(
     append(groups, key, {path: file.path, episodes: parsed.episodes});
   }
   return groups.values();
-}
-
-function comparableName(name: string): string {
-  return name
-    .normalize('NFKC')
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}]/gu, '');
 }
 
 function sharedEpisodes(group: Array<EpisodeFile>): Map<string, Array<number>> {

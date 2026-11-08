@@ -244,7 +244,7 @@ function withFolderClues(
   return {...parsed, name, season, nameFromFolder: name !== null};
 }
 
-function readSeasonFolder(
+export function readSeasonFolder(
   folderName: string
 ): {name: string | null; season: number} | null {
   const cleaned = cleanFolderName(folderName);
