@@ -1,15 +1,24 @@
-import {FilePlusIcon, FolderPlusIcon, RotateCcwIcon, XIcon} from 'lucide-react';
+import {useState} from 'react';
+import {
+  FilePlusIcon,
+  FolderPlusIcon,
+  HistoryIcon,
+  RotateCcwIcon,
+  XIcon,
+} from 'lucide-react';
 
 import {pickFiles, pickFolders} from '@/ipc/dialogs';
 import {
   addPaths,
   applyPlan,
   clearFiles,
+  loadHistory,
   undoBatch,
 } from '@/store/session-actions';
 import {useSession} from '@/store/session-store';
 import type {Preview} from '@/store/use-preview';
 import {Button} from '@/ui/button';
+import {HistoryDialog} from '@/features/history/history-dialog';
 import {ShowsSection} from '@/features/shows/shows-section';
 import {SectionHeading} from '@/features/sidebar/section-heading';
 import {StepList} from '@/features/step-editor/step-list';
@@ -25,6 +34,7 @@ export function Sidebar({preview}: {preview: Preview}) {
   const files = useSession(state => state.files);
   const activity = useSession(state => state.activity);
   const newestBatch = useSession(state => state.history.at(0));
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const lookupsEnabled = useSession(state => state.lookupsEnabled);
 
   const isBusy = activity.kind !== 'idle';
@@ -104,16 +114,31 @@ export function Sidebar({preview}: {preview: Preview}) {
             compiledSteps.pipeline.kind === 'invalid'
           )}
         </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={isBusy || newestBatch?.canUndo !== true}
-          onClick={() => {
-            if (newestBatch) void undoBatch(newestBatch.batchId);
-          }}>
-          <RotateCcwIcon /> Undo last rename
-        </Button>
+        <div className="flex gap-1.5">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="flex-1"
+            disabled={isBusy || newestBatch?.canUndo !== true}
+            onClick={() => {
+              if (newestBatch) void undoBatch(newestBatch.batchId);
+            }}>
+            <RotateCcwIcon /> Undo last rename
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setIsHistoryOpen(true);
+              void loadHistory();
+            }}>
+            <HistoryIcon /> History
+          </Button>
+        </div>
       </footer>
+      {isHistoryOpen && (
+        <HistoryDialog onClose={() => setIsHistoryOpen(false)} />
+      )}
     </aside>
   );
 }

@@ -1,8 +1,10 @@
 import {toast} from 'sonner';
 
 import {companionsOf} from '@/domain/files/companions';
+import {batchRows, type BatchRow} from '@/domain/history/batch-summary';
 import {isVideoExtension} from '@/domain/parsing/parse-file-name';
 import {describeFailure, describeSkip} from '@/domain/preview/messages';
+import {plural} from '@/domain/text/plural';
 import {errorMessage} from '@/ipc/command-error';
 import * as commands from '@/ipc/commands';
 import type {
@@ -123,6 +125,10 @@ export async function applyPlan(plan: Plan): Promise<void> {
   }
 }
 
+export async function loadBatchRows(batchId: string): Promise<Array<BatchRow>> {
+  return batchRows(await commands.batchSteps({batchId}));
+}
+
 export async function resumeBatch(batchId: string): Promise<void> {
   const result = await runBatch('rename', 0, onProgress =>
     commands.resume({batchId}, onProgress)
@@ -230,8 +236,4 @@ async function refreshFiles(
   } catch (error) {
     toast.error(`Couldn't refresh the file list: ${errorMessage(error)}`);
   }
-}
-
-function plural(count: number, noun: string): string {
-  return `${count} ${noun}${count === 1 ? '' : 's'}`;
 }
