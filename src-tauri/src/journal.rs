@@ -28,7 +28,7 @@ impl JournalPath {
     }
 }
 
-const MIGRATIONS: [&str; 2] = [
+const MIGRATIONS: [&str; 3] = [
     r#"
     CREATE TABLE batches (
         id TEXT PRIMARY KEY,
@@ -60,6 +60,19 @@ const MIGRATIONS: [&str; 2] = [
     r#"
     ALTER TABLE batches ADD COLUMN plan_id TEXT;
     CREATE UNIQUE INDEX batches_plan_id ON batches (plan_id);
+"#,
+    r#"
+    ALTER TABLE steps RENAME COLUMN size_after TO size;
+    ALTER TABLE steps RENAME COLUMN modified_after_ms TO modified_ms;
+    ALTER TABLE steps ADD COLUMN group_id TEXT;
+    ALTER TABLE steps ADD COLUMN undoes_position INTEGER;
+    CREATE TABLE batch_volumes (
+        batch_id TEXT NOT NULL REFERENCES batches (id),
+        volume_id TEXT NOT NULL,
+        mount_point TEXT NOT NULL,
+        label TEXT NOT NULL,
+        PRIMARY KEY (batch_id, volume_id)
+    );
 "#,
 ];
 
@@ -164,7 +177,7 @@ impl From<&PlanStep> for JournalStep {
 pub struct RecordedStep {
     pub step: JournalStep,
     pub status: StepStatus,
-    pub fingerprint_after: Option<Fingerprint>,
+    pub fingerprint: Option<Fingerprint>,
 }
 
 #[derive(Debug, Clone)]
@@ -298,7 +311,7 @@ fn set_step_done(
     fingerprint: Option<Fingerprint>,
 ) -> rusqlite::Result<()> {
     connection.execute(
-        "UPDATE steps SET status = 'done', size_after = ?3, modified_after_ms = ?4
+        "UPDATE steps SET status = 'done', size = ?3, modified_ms = ?4
          WHERE batch_id = ?1 AND position = ?2",
         params![
             batch_id,
@@ -361,14 +374,14 @@ pub fn load_batch(
 
 pub fn load_steps(connection: &Connection, batch_id: &str) -> rusqlite::Result<Vec<RecordedStep>> {
     let mut query = connection.prepare(
-        "SELECT position, row_id, role, volume_id, from_path, to_path, status, size_after, modified_after_ms
+        "SELECT position, row_id, role, volume_id, from_path, to_path, status, size, modified_ms
          FROM steps WHERE batch_id = ?1 ORDER BY position",
     )?;
     let rows = query.query_map(params![batch_id], |row| {
         let role: String = row.get(2)?;
         let status: String = row.get(6)?;
-        let size_after: Option<i64> = row.get(7)?;
-        let modified_after_ms: Option<i64> = row.get(8)?;
+        let size: Option<i64> = row.get(7)?;
+        let modified_ms: Option<i64> = row.get(8)?;
         Ok(RecordedStep {
             step: JournalStep {
                 position: row.get(0)?,
@@ -380,8 +393,8 @@ pub fn load_steps(connection: &Connection, batch_id: &str) -> rusqlite::Result<V
             },
             status: StepStatus::from_text(&status)
                 .ok_or_else(|| invalid_text("status", &status))?,
-            fingerprint_after: size_after
-                .zip(modified_after_ms)
+            fingerprint: size
+                .zip(modified_ms)
                 .map(|(size, modified_ms)| Fingerprint {
                     size: size as u64,
                     modified_ms,

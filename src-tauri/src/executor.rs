@@ -193,7 +193,7 @@ pub fn undo(
                 to: recorded.step.from.clone(),
             },
             original_position: recorded.step.position,
-            expected: recorded.fingerprint_after,
+            expected: recorded.fingerprint,
         })
         .collect();
 
