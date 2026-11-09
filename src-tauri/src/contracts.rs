@@ -274,7 +274,7 @@ pub enum BatchOutcome {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(
     tag = "kind",
     rename_all = "camelCase",
@@ -321,13 +321,16 @@ pub struct HistoryRequest {
 #[serde(rename_all = "camelCase")]
 pub struct JournalEntry {
     pub batch_id: String,
-    pub kind: BatchKind,
     pub created_at: i64,
+    pub finished_at: Option<i64>,
     pub status: BatchStatus,
-    pub total_steps: u32,
-    pub done_steps: u32,
-    pub undoes_batch_id: Option<String>,
-    pub undo: UndoAvailability,
+    pub total_files: u32,
+    pub renamed_files: u32,
+    pub undone_files: u32,
+    pub stop_reason: Option<RenameFailure>,
+    pub drives: Vec<String>,
+    pub can_undo: bool,
+    pub can_resume: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -337,14 +340,26 @@ pub enum BatchStatus {
     Completed,
     Stopped,
     Interrupted,
-    Undone,
-    PartiallyUndone,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchStep {
+    pub position: u32,
+    pub row_id: String,
+    pub role: StepRole,
+    pub from: String,
+    pub to: String,
+    pub status: StepStatus,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
-pub enum UndoAvailability {
-    Available,
-    AlreadyUndone,
-    NotUndoable,
+#[serde(rename_all = "camelCase")]
+pub enum StepStatus {
+    Planned,
+    Started,
+    Done,
+    Failed,
+    Undone,
+    Skipped,
 }

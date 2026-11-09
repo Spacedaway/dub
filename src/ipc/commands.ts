@@ -2,14 +2,15 @@ import {Channel, invoke} from '@tauri-apps/api/core';
 
 import type {
   BatchProgress,
+  BatchRequest,
   BatchResult,
+  BatchStep,
   ExecuteRequest,
   JournalEntry,
   Plan,
   PlanRequest,
   ScanRequest,
   ScanResponse,
-  BatchRequest,
   VolumeInfo,
 } from '@/ipc/contracts';
 
@@ -48,6 +49,10 @@ export function resume(
 
 export function history(limit: number): Promise<Array<JournalEntry>> {
   return invoke('history', {request: {limit}});
+}
+
+export function batchSteps(request: BatchRequest): Promise<Array<BatchStep>> {
+  return invoke('batch_steps', {request});
 }
 
 function progressChannel(

@@ -5,7 +5,7 @@ import {
   addPaths,
   applyPlan,
   clearFiles,
-  undoLatestBatch,
+  undoBatch,
 } from '@/store/session-actions';
 import {useSession} from '@/store/session-store';
 import type {Preview} from '@/store/use-preview';
@@ -24,7 +24,7 @@ export function Sidebar({preview}: {preview: Preview}) {
   } = preview;
   const files = useSession(state => state.files);
   const activity = useSession(state => state.activity);
-  const undoableBatchId = useSession(state => state.undoableBatchId);
+  const newestBatch = useSession(state => state.history.at(0));
   const lookupsEnabled = useSession(state => state.lookupsEnabled);
 
   const isBusy = activity.kind !== 'idle';
@@ -107,8 +107,10 @@ export function Sidebar({preview}: {preview: Preview}) {
         <Button
           variant="ghost"
           size="sm"
-          disabled={isBusy || undoableBatchId === null}
-          onClick={undoLatestBatch}>
+          disabled={isBusy || newestBatch?.canUndo !== true}
+          onClick={() => {
+            if (newestBatch) void undoBatch(newestBatch.batchId);
+          }}>
           <RotateCcwIcon /> Undo last rename
         </Button>
       </footer>

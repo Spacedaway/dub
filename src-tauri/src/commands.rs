@@ -4,8 +4,8 @@ use tauri::State;
 use tauri::ipc::Channel;
 
 use crate::contracts::{
-    BatchProgress, BatchRequest, BatchResult, ExecuteRequest, HistoryRequest, JournalEntry, Plan,
-    PlanRequest, ScanRequest, ScanResponse, VolumeInfo, VolumeInfoRequest,
+    BatchProgress, BatchRequest, BatchResult, BatchStep, ExecuteRequest, HistoryRequest,
+    JournalEntry, Plan, PlanRequest, ScanRequest, ScanResponse, VolumeInfo, VolumeInfoRequest,
 };
 use crate::error::CommandError;
 use crate::executor::{self, BatchGate};
@@ -95,6 +95,15 @@ pub async fn history(
 ) -> Result<Vec<JournalEntry>, CommandError> {
     let journal = journal.inner().clone();
     run_blocking(move || Ok(journal::history(&journal.open()?, request.limit)?)).await
+}
+
+#[tauri::command]
+pub async fn batch_steps(
+    journal: State<'_, JournalPath>,
+    request: BatchRequest,
+) -> Result<Vec<BatchStep>, CommandError> {
+    let journal = journal.inner().clone();
+    run_blocking(move || Ok(journal::batch_steps(&journal.open()?, &request.batch_id)?)).await
 }
 
 async fn run_blocking<T: Send + 'static>(

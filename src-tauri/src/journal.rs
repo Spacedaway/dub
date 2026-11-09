@@ -4,8 +4,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::contracts::{
-    BatchKind, BatchStatus, JournalEntry, PlanStep, RenameFailure, SkipReason, StepRole,
-    UndoAvailability,
+    BatchKind, BatchStatus, BatchStep, JournalEntry, PlanStep, RenameFailure, SkipReason, StepRole,
+    StepStatus,
 };
 use crate::drives::Drives;
 use crate::platform;
@@ -108,8 +108,6 @@ database_text!(BatchStatus {
     Completed => "completed",
     Stopped => "stopped",
     Interrupted => "interrupted",
-    Undone => "undone",
-    PartiallyUndone => "partiallyUndone",
 });
 database_text!(StepRole { Direct => "direct", ToTemporary => "toTemporary", FromTemporary => "fromTemporary" });
 database_text!(StepStatus {
@@ -121,14 +119,11 @@ database_text!(StepStatus {
     Skipped => "skipped",
 });
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum StepStatus {
-    Planned,
-    Started,
-    Done,
-    Failed,
-    Undone,
-    Skipped,
+fn batch_status_from_text(text: &str) -> rusqlite::Result<BatchStatus> {
+    match text {
+        "undone" | "partiallyUndone" => Ok(BatchStatus::Completed),
+        _ => BatchStatus::from_text(text).ok_or_else(|| invalid_text("status", text)),
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -394,8 +389,7 @@ pub fn load_batch(
         .map(|(kind, status)| {
             Ok(BatchRecord {
                 kind: BatchKind::from_text(&kind).ok_or_else(|| invalid_text("kind", &kind))?,
-                status: BatchStatus::from_text(&status)
-                    .ok_or_else(|| invalid_text("status", &status))?,
+                status: batch_status_from_text(&status)?,
             })
         })
         .transpose()
@@ -455,45 +449,63 @@ pub fn load_steps(connection: &Connection, batch_id: &str) -> rusqlite::Result<V
 
 pub fn history(connection: &Connection, limit: u32) -> rusqlite::Result<Vec<JournalEntry>> {
     let mut query = connection.prepare(
-        "SELECT b.id, b.kind, b.created_at, b.status, b.undoes_batch_id,
-                (SELECT COUNT(*) FROM steps s WHERE s.batch_id = b.id),
-                (SELECT COUNT(*) FROM steps s WHERE s.batch_id = b.id AND s.status = 'done')
-         FROM batches b ORDER BY b.created_at DESC, b.id DESC LIMIT ?1",
+        "SELECT b.id, b.created_at, b.finished_at, b.status,
+                SUM(s.role != 'toTemporary'),
+                SUM(s.role != 'toTemporary' AND s.status = 'done'),
+                SUM(s.role != 'toTemporary' AND s.status = 'undone'),
+                SUM(s.status = 'done'),
+                SUM(s.status = 'undone'),
+                SUM(s.status IN ('planned', 'started', 'failed')),
+                (SELECT f.detail FROM steps f WHERE f.batch_id = b.id AND f.status = 'failed'
+                 ORDER BY f.position DESC LIMIT 1)
+         FROM batches b JOIN steps s ON s.batch_id = b.id
+         WHERE b.kind = 'rename'
+         GROUP BY b.id
+         ORDER BY b.created_at DESC, b.id DESC
+         LIMIT ?1",
     )?;
+    let mut drives =
+        connection.prepare("SELECT label FROM batch_volumes WHERE batch_id = ?1 ORDER BY label")?;
     let rows = query.query_map(params![limit], |row| {
-        let kind_text: String = row.get(1)?;
-        let status_text: String = row.get(3)?;
-        let kind =
-            BatchKind::from_text(&kind_text).ok_or_else(|| invalid_text("kind", &kind_text))?;
-        let status = BatchStatus::from_text(&status_text)
-            .ok_or_else(|| invalid_text("status", &status_text))?;
-        let done_steps: u32 = row.get(6)?;
+        let batch_id: String = row.get(0)?;
+        let status = batch_status_from_text(&row.get::<_, String>(3)?)?;
+        let done_steps: u32 = row.get(7)?;
+        let undone_steps: u32 = row.get(8)?;
+        let pending_steps: u32 = row.get(9)?;
+        let stopped_part_way = matches!(status, BatchStatus::Stopped | BatchStatus::Interrupted);
         Ok(JournalEntry {
-            batch_id: row.get(0)?,
-            kind,
-            created_at: row.get(2)?,
+            drives: drives
+                .query_map(params![batch_id], |label| label.get(0))?
+                .collect::<rusqlite::Result<_>>()?,
+            batch_id,
+            created_at: row.get(1)?,
+            finished_at: row.get(2)?,
             status,
-            total_steps: row.get(5)?,
-            done_steps,
-            undoes_batch_id: row.get(4)?,
-            undo: undo_availability(kind, status, done_steps),
+            total_files: row.get(4)?,
+            renamed_files: row.get(5)?,
+            undone_files: row.get(6)?,
+            stop_reason: row
+                .get::<_, Option<String>>(10)?
+                .and_then(|detail| serde_json::from_str(&detail).ok()),
+            can_undo: status != BatchStatus::Running && done_steps > 0,
+            can_resume: stopped_part_way && undone_steps == 0 && pending_steps > 0,
         })
     })?;
     rows.collect()
 }
 
-pub fn undo_availability(
-    kind: BatchKind,
-    status: BatchStatus,
-    done_steps: u32,
-) -> UndoAvailability {
-    match (kind, status) {
-        (BatchKind::Undo, _) => UndoAvailability::NotUndoable,
-        (_, BatchStatus::Undone) => UndoAvailability::AlreadyUndone,
-        (_, BatchStatus::Running) => UndoAvailability::NotUndoable,
-        _ if done_steps == 0 => UndoAvailability::NotUndoable,
-        _ => UndoAvailability::Available,
-    }
+pub fn batch_steps(connection: &Connection, batch_id: &str) -> rusqlite::Result<Vec<BatchStep>> {
+    Ok(load_steps(connection, batch_id)?
+        .into_iter()
+        .map(|recorded| BatchStep {
+            position: recorded.step.position,
+            row_id: recorded.step.row_id,
+            role: recorded.step.role,
+            from: recorded.step.from,
+            to: recorded.step.to,
+            status: recorded.status,
+        })
+        .collect())
 }
 
 pub fn recover(journal: &JournalPath) -> rusqlite::Result<()> {

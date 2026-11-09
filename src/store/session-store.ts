@@ -23,7 +23,12 @@ import {
   type TextStep,
   type TextStepKind,
 } from '@/domain/steps/step';
-import type {BatchKind, ScannedFile, VolumeInfo} from '@/ipc/contracts';
+import type {
+  BatchKind,
+  JournalEntry,
+  ScannedFile,
+  VolumeInfo,
+} from '@/ipc/contracts';
 import type {PlanResult} from '@/store/live-plan';
 
 export type Activity =
@@ -43,7 +48,7 @@ type SessionState = {
   steps: Steps;
   rowEdits: RowEdits;
   activity: Activity;
-  undoableBatchId: string | null;
+  history: Array<JournalEntry>;
   diskGeneration: number;
   planResult: PlanResult | null;
   isDraggingOver: boolean;
@@ -68,7 +73,7 @@ type SessionActions = {
   setNameOverride: (path: string, stem: string | null) => void;
   resetNameOverrides: () => void;
   setActivity: (activity: Activity) => void;
-  setUndoableBatchId: (batchId: string | null) => void;
+  setHistory: (history: Array<JournalEntry>) => void;
   markDiskChanged: () => void;
   setPlanResult: (planResult: PlanResult) => void;
   setDraggingOver: (isDraggingOver: boolean) => void;
@@ -116,7 +121,7 @@ export const useSession = create<SessionState & SessionActions>()(
     steps: initialSteps,
     rowEdits: noRowEdits,
     activity: {kind: 'idle'},
-    undoableBatchId: null,
+    history: [],
     diskGeneration: 0,
     planResult: null,
     isDraggingOver: false,
@@ -219,8 +224,8 @@ export const useSession = create<SessionState & SessionActions>()(
     setActivity(activity) {
       set({activity});
     },
-    setUndoableBatchId(undoableBatchId) {
-      set({undoableBatchId});
+    setHistory(history) {
+      set({history});
     },
     markDiskChanged() {
       set(state => ({diskGeneration: state.diskGeneration + 1}));

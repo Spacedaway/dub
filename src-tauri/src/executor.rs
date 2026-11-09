@@ -11,13 +11,12 @@ use uuid::Uuid;
 
 use crate::contracts::{
     BatchKind, BatchOutcome, BatchProgress, BatchResult, BatchStatus, Plan, RenameFailure,
-    SkipReason, SkippedStep, StepRole,
+    SkipReason, SkippedStep, StepRole, StepStatus,
 };
 use crate::drives::Drives;
 use crate::error::CommandError;
 use crate::journal::{
     self, BatchVolume, Fingerprint, JournalPath, JournalStep, NewBatch, RecordedStep, StepOutcome,
-    StepStatus,
 };
 use crate::names;
 use crate::platform;
@@ -749,7 +748,9 @@ fn inverse(role: StepRole) -> StepRole {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::contracts::{PlanRequest, ProposedRename, RenameFailure, RenameTarget};
+    use crate::contracts::{
+        JournalEntry, PlanRequest, ProposedRename, RenameFailure, RenameTarget,
+    };
     use crate::planner::{self, DiskProbe};
     use std::fs;
     use std::time::{Duration, SystemTime};
@@ -856,6 +857,12 @@ mod tests {
             };
             journal::begin_batch(&mut self.journal.open().unwrap(), &batch, &steps).unwrap();
             BATCH_ID
+        }
+
+        fn newest_history_entry(&self) -> JournalEntry {
+            journal::history(&self.journal.open().unwrap(), 1)
+                .unwrap()
+                .remove(0)
         }
 
         fn step_statuses(&self, batch_id: &str) -> Vec<StepStatus> {
@@ -1249,6 +1256,10 @@ mod tests {
     fn a_stopped_batch_resumes_from_the_failed_step() {
         let workspace = Workspace::new(&["a.txt", "b.txt"]);
         let stopped = stop_before_the_second_rename(&workspace);
+        let entry = workspace.newest_history_entry();
+        assert!(entry.can_resume && entry.can_undo);
+        assert_eq!(entry.stop_reason, Some(RenameFailure::TargetExists));
+        assert_eq!((entry.total_files, entry.renamed_files), (2, 1));
 
         let resumed = resume(
             &workspace.gate,
@@ -1273,6 +1284,9 @@ mod tests {
         )
         .unwrap();
         assert_eq!(workspace.names(), vec!["a.txt", "b.txt"]);
+        let entry = workspace.newest_history_entry();
+        assert!(!entry.can_resume && !entry.can_undo);
+        assert_eq!(entry.undone_files, 2);
     }
 
     #[test]

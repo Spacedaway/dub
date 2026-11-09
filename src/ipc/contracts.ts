@@ -146,23 +146,37 @@ export type BatchResult = {
   touchedPaths: Array<string>;
 };
 
-export type BatchStatus =
-  | 'running'
-  | 'completed'
-  | 'stopped'
-  | 'interrupted'
-  | 'undone'
-  | 'partiallyUndone';
+export type BatchStatus = 'running' | 'completed' | 'stopped' | 'interrupted';
 
 export type JournalEntry = {
   batchId: string;
-  kind: BatchKind;
   createdAt: number;
+  finishedAt: number | null;
   status: BatchStatus;
-  totalSteps: number;
-  doneSteps: number;
-  undoesBatchId: string | null;
-  undo: {kind: 'available'} | {kind: 'alreadyUndone'} | {kind: 'notUndoable'};
+  totalFiles: number;
+  renamedFiles: number;
+  undoneFiles: number;
+  stopReason: RenameFailure | null;
+  drives: Array<string>;
+  canUndo: boolean;
+  canResume: boolean;
+};
+
+export type StepStatus =
+  | 'planned'
+  | 'started'
+  | 'done'
+  | 'failed'
+  | 'undone'
+  | 'skipped';
+
+export type BatchStep = {
+  position: number;
+  rowId: string;
+  role: StepRole;
+  from: string;
+  to: string;
+  status: StepStatus;
 };
 
 export type CommandError = {

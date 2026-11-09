@@ -89,15 +89,11 @@ export function clearFiles(): void {
   useSession.getState().setFiles([]);
 }
 
-export async function loadUndoableBatch(): Promise<void> {
+const historyLength = 50;
+
+export async function loadHistory(): Promise<void> {
   try {
-    const entries = await commands.history(20);
-    const newestRename = entries.find(entry => entry.kind === 'rename');
-    useSession
-      .getState()
-      .setUndoableBatchId(
-        newestRename?.undo.kind === 'available' ? newestRename.batchId : null
-      );
+    useSession.getState().setHistory(await commands.history(historyLength));
   } catch (error) {
     toast.error(`Couldn't read the rename history: ${errorMessage(error)}`);
   }
@@ -127,10 +123,23 @@ export async function applyPlan(plan: Plan): Promise<void> {
   }
 }
 
-export async function undoLatestBatch(): Promise<void> {
-  const batchId = useSession.getState().undoableBatchId;
-  if (batchId === null) return;
+export async function resumeBatch(batchId: string): Promise<void> {
+  const result = await runBatch('rename', 0, onProgress =>
+    commands.resume({batchId}, onProgress)
+  );
+  await finishBatch(result, [], new Map());
+  if (result === null) return;
 
+  if (result.outcome.kind === 'completed') {
+    toast.success('Finished renaming.');
+  } else {
+    toast.error(
+      `Stopped again after ${plural(result.completedSteps, 'step')}: ${describeFailure(result.outcome.failure)}.`
+    );
+  }
+}
+
+export async function undoBatch(batchId: string): Promise<void> {
   const result = await runBatch('undo', 0, onProgress =>
     commands.undo({batchId}, onProgress)
   );
@@ -201,7 +210,7 @@ async function finishBatch(
       [...previousPaths, ...(result?.touchedPaths ?? []), ...extraPaths],
       overrideMoves
     );
-    await loadUndoableBatch();
+    await loadHistory();
   } finally {
     useSession.getState().markDiskChanged();
     useSession.getState().setActivity({kind: 'idle'});

@@ -42,6 +42,7 @@ pub fn run() {
             commands::undo,
             commands::resume,
             commands::history,
+            commands::batch_steps,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
