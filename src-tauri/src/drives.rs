@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use crate::contracts::RenameFailure;
 use crate::error::CommandError;
 use crate::journal::BatchVolume;
 use crate::platform::{self, DriveLocation};
@@ -71,6 +72,19 @@ impl Drives {
                 ..volume.clone()
             })
             .collect()
+    }
+
+    pub fn blame_a_lost_drive(&self, volume_id: &str, failure: RenameFailure) -> RenameFailure {
+        let Some(mount) = self.mounts.get(volume_id) else {
+            return failure;
+        };
+        let still_mounted =
+            platform::volume_info(&mount.current).is_ok_and(|volume| volume.id == volume_id);
+        if still_mounted {
+            failure
+        } else {
+            RenameFailure::DriveDisconnected
+        }
     }
 
     pub fn holds(&mut self, volume_id: &str, path: &str) -> bool {

@@ -288,6 +288,7 @@ pub enum RenameFailure {
     ReadOnlyVolume,
     DifferentVolume,
     NameTooLong,
+    DriveDisconnected,
     Other {
         message: String,
         os_code: Option<i32>,

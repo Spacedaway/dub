@@ -70,6 +70,8 @@ export function describeFailure(failure: RenameFailure): string {
       return 'the new location is on a different drive';
     case 'nameTooLong':
       return 'the name is too long for this drive';
+    case 'driveDisconnected':
+      return 'the drive was disconnected';
     case 'other':
       return failure.message;
   }

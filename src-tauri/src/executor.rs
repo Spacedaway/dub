@@ -74,9 +74,9 @@ pub fn execute(
         total_steps: steps.len() as u32,
     });
 
-    let result = run_rename_steps(&mut connection, &batch_id, &steps, &progress);
+    let drives = Drives::as_recorded(&volumes);
+    let result = run_rename_steps(&mut connection, &batch_id, &steps, &drives, &progress);
     if result.is_err() {
-        let drives = Drives::as_recorded(&volumes);
         let _ = journal::interrupt_batch(&mut connection, &batch_id, &drives);
     }
     result
@@ -136,6 +136,7 @@ fn run_rename_steps(
     connection: &mut Connection,
     batch_id: &str,
     steps: &[JournalStep],
+    drives: &Drives,
     progress: &impl Fn(BatchProgress),
 ) -> Result<BatchResult, CommandError> {
     let total_steps = steps.len() as u32;
@@ -160,6 +161,7 @@ fn run_rename_steps(
                 });
             }
             Err(failure) => {
+                let failure = drives.blame_a_lost_drive(&step.volume_id, failure);
                 journal::record_step(
                     connection,
                     batch_id,
@@ -252,7 +254,7 @@ pub fn resume(
         batch_id: batch_id.to_string(),
         total_steps: steps.len() as u32,
     });
-    let result = run_rename_steps(&mut connection, batch_id, &steps, &progress);
+    let result = run_rename_steps(&mut connection, batch_id, &steps, &drives, &progress);
     if result.is_err() {
         let _ = journal::interrupt_batch(&mut connection, batch_id, &drives);
     }
@@ -494,6 +496,7 @@ fn run_undo_steps(
                     moved.push(index);
                 }
                 Err(failure) => {
+                    let failure = drives.blame_a_lost_drive(&step.volume_id, failure);
                     journal::record_step(
                         connection,
                         undo_id,

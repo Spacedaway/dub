@@ -122,6 +122,7 @@ export type RenameFailure =
   | {kind: 'readOnlyVolume'}
   | {kind: 'differentVolume'}
   | {kind: 'nameTooLong'}
+  | {kind: 'driveDisconnected'}
   | {kind: 'other'; message: string; osCode: number | null};
 
 export type SkipReason = 'fileChanged' | 'fileMissing' | 'originalNameTaken';
