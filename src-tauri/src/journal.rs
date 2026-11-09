@@ -516,8 +516,8 @@ pub fn recover(journal: &JournalPath) -> rusqlite::Result<()> {
         .collect::<rusqlite::Result<_>>()?;
 
     for batch_id in running {
-        let drives = Drives::find_available(&load_batch_volumes(&connection, &batch_id)?);
-        interrupt_batch(&mut connection, &batch_id, &drives)?;
+        let mut drives = Drives::find_available(&load_batch_volumes(&connection, &batch_id)?);
+        interrupt_batch(&mut connection, &batch_id, &mut drives)?;
     }
     Ok(())
 }
@@ -525,7 +525,7 @@ pub fn recover(journal: &JournalPath) -> rusqlite::Result<()> {
 pub fn interrupt_batch(
     connection: &mut Connection,
     batch_id: &str,
-    drives: &Drives,
+    drives: &mut Drives,
 ) -> rusqlite::Result<()> {
     let transaction = connection.transaction()?;
     settle_started_steps(&transaction, batch_id, drives)?;
@@ -554,7 +554,7 @@ pub fn restart_batch(
 pub fn settle_batch_and_its_undo_batches(
     connection: &mut Connection,
     batch_id: &str,
-    drives: &Drives,
+    drives: &mut Drives,
 ) -> rusqlite::Result<()> {
     let transaction = connection.transaction()?;
     settle_started_steps(&transaction, batch_id, drives)?;
@@ -566,8 +566,8 @@ pub fn settle_batch_and_its_undo_batches(
         .query_map(params![batch_id], |row| row.get(0))?
         .collect::<rusqlite::Result<_>>()?;
     for undo_id in unsettled_undo_batches {
-        let undo_drives = Drives::find_available(&load_batch_volumes(&transaction, &undo_id)?);
-        settle_started_steps(&transaction, &undo_id, &undo_drives)?;
+        let mut undo_drives = Drives::find_available(&load_batch_volumes(&transaction, &undo_id)?);
+        settle_started_steps(&transaction, &undo_id, &mut undo_drives)?;
     }
     transaction.commit()
 }
@@ -575,7 +575,7 @@ pub fn settle_batch_and_its_undo_batches(
 fn settle_started_steps(
     connection: &Connection,
     batch_id: &str,
-    drives: &Drives,
+    drives: &mut Drives,
 ) -> rusqlite::Result<()> {
     for recorded in load_steps(connection, batch_id)? {
         if recorded.status != StepStatus::Started {
@@ -584,12 +584,16 @@ fn settle_started_steps(
         let step = &recorded.step;
         let from = drives.translate(&step.volume_id, &step.from);
         let to = drives.translate(&step.volume_id, &step.to);
+        if !drives.holds(&step.volume_id, &from) {
+            continue;
+        }
         match (
             platform::path_present(Path::new(&from)),
             platform::path_present(Path::new(&to)),
         ) {
             (true, false) => {
-                set_step_status(connection, batch_id, step.position, StepStatus::Planned)?
+                set_step_status(connection, batch_id, step.position, StepStatus::Planned)?;
+                set_original_status(connection, batch_id, step.position, StepStatus::Done)?;
             }
             (false, true) => set_step_done(
                 connection,

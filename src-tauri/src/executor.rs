@@ -73,10 +73,10 @@ pub fn execute(
         total_steps: steps.len() as u32,
     });
 
-    let drives = Drives::as_recorded(&volumes);
+    let mut drives = Drives::as_recorded(&volumes);
     let result = run_rename_steps(&mut connection, &batch_id, &steps, &drives, &progress);
     if result.is_err() {
-        let _ = journal::interrupt_batch(&mut connection, &batch_id, &drives);
+        let _ = journal::interrupt_batch(&mut connection, &batch_id, &mut drives);
     }
     result
 }
@@ -221,7 +221,7 @@ pub fn resume(
 
     let volumes = journal::load_batch_volumes(&connection, batch_id)?;
     let mut drives = Drives::find(&volumes)?;
-    journal::settle_batch_and_its_undo_batches(&mut connection, batch_id, &drives)?;
+    journal::settle_batch_and_its_undo_batches(&mut connection, batch_id, &mut drives)?;
     let recorded = journal::load_steps(&connection, batch_id)?;
     refuse_unless_it_can_resume(&recorded)?;
     requeue_renames_that_never_reached_the_disk(&connection, batch_id, &recorded, &drives)?;
@@ -255,7 +255,7 @@ pub fn resume(
     });
     let result = run_rename_steps(&mut connection, batch_id, &steps, &drives, &progress);
     if result.is_err() {
-        let _ = journal::interrupt_batch(&mut connection, batch_id, &drives);
+        let _ = journal::interrupt_batch(&mut connection, batch_id, &mut drives);
     }
     result
 }
@@ -384,7 +384,7 @@ fn undo_with(
 
     let recorded_volumes = journal::load_batch_volumes(&connection, batch_id)?;
     let mut drives = Drives::find(&recorded_volumes)?;
-    journal::settle_batch_and_its_undo_batches(&mut connection, batch_id, &drives)?;
+    journal::settle_batch_and_its_undo_batches(&mut connection, batch_id, &mut drives)?;
 
     let recorded = journal::load_steps(&connection, batch_id)?;
     let mut steps: Vec<JournalStep> = Vec::new();
@@ -438,8 +438,8 @@ fn undo_with(
         rename,
     );
     if result.is_err() {
-        let drives = Drives::as_recorded(&current_volumes);
-        let _ = journal::interrupt_batch(&mut connection, &undo_id, &drives);
+        let mut drives = Drives::as_recorded(&current_volumes);
+        let _ = journal::interrupt_batch(&mut connection, &undo_id, &mut drives);
     }
     result
 }
@@ -556,6 +556,7 @@ fn roll_back(
     let mut stranded = Vec::new();
     for &index in moved.iter().rev() {
         let step = &steps[index];
+        journal::set_step_status(connection, undo_id, step.position, StepStatus::Started)?;
         if rename(Path::new(&step.to), Path::new(&step.from)).is_ok() {
             journal::record_step(
                 connection,
@@ -565,6 +566,7 @@ fn roll_back(
                 None,
             )?;
         } else {
+            journal::set_step_status(connection, undo_id, step.position, StepStatus::Done)?;
             stranded.push(step.to.clone());
         }
     }
@@ -997,6 +999,67 @@ mod tests {
         assert!(undone.skipped.is_empty());
         assert_eq!(workspace.names(), vec!["a.txt", "b.txt"]);
         assert_eq!(workspace.contents("a.txt").as_deref(), Some("a.txt"));
+    }
+
+    #[test]
+    fn a_rollback_interrupted_after_its_rename_marks_the_original_step_done() {
+        let workspace = Workspace::new(&["a.txt", "b.txt"]);
+        let plan = workspace.plan(&[("a.txt", "b.txt"), ("b.txt", "a.txt")]);
+        let result = execute(&workspace.gate, &workspace.journal, plan, |_| {}).unwrap();
+
+        let quits_while_rolling_back = |from: &Path, to: &Path| {
+            if from.ends_with("b.txt") && to.ends_with("a.txt") {
+                platform::rename_no_overwrite(from, to).unwrap();
+                panic!("the app quit");
+            }
+            fails_from_a_temporary_name(from, to)
+        };
+        let crashed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            undo_with(
+                &workspace.gate,
+                &workspace.journal,
+                &result.batch_id,
+                |_| {},
+                &quits_while_rolling_back,
+            )
+        }));
+        assert!(crashed.is_err());
+
+        journal::recover(&workspace.journal).unwrap();
+        assert_eq!(
+            workspace.step_statuses(&result.batch_id),
+            vec![StepStatus::Done, StepStatus::Done, StepStatus::Undone]
+        );
+        let undone = undo(
+            &workspace.gate,
+            &workspace.journal,
+            &result.batch_id,
+            |_| {},
+        )
+        .unwrap();
+        assert!(undone.skipped.is_empty());
+        assert_eq!(workspace.names(), vec!["a.txt", "b.txt"]);
+        assert_eq!(workspace.contents("a.txt").as_deref(), Some("a.txt"));
+    }
+
+    #[test]
+    fn recovery_leaves_a_step_on_another_drive_unsettled() {
+        let workspace = Workspace::new(&["a.txt"]);
+        let plan = workspace.plan(&[("a.txt", "b.txt")]);
+        let batch_id = workspace.begin_without_running(&plan);
+        fs::rename(workspace.path("a.txt"), workspace.path("b.txt")).unwrap();
+        workspace
+            .journal
+            .open()
+            .unwrap()
+            .execute(
+                "UPDATE steps SET volume_id = 'uuid:00000000-0000-0000-0000-000000000000'",
+                [],
+            )
+            .unwrap();
+
+        journal::recover(&workspace.journal).unwrap();
+        assert_eq!(workspace.step_statuses(batch_id), vec![StepStatus::Started]);
     }
 
     #[test]
