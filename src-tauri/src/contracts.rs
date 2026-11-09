@@ -197,6 +197,7 @@ pub enum PlanWarning {
 pub struct PlanStep {
     pub position: u32,
     pub row_id: String,
+    pub group_id: String,
     pub role: StepRole,
     pub from: String,
     pub to: String,

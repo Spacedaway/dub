@@ -1,4 +1,6 @@
-use std::collections::HashSet;
+use std::cmp::Reverse;
+use std::collections::hash_map::Entry;
+use std::collections::{BTreeMap, BinaryHeap, HashMap, HashSet};
 use std::ops::Range;
 use std::path::Path;
 use std::sync::Arc;
@@ -169,33 +171,34 @@ pub fn undo(
         )));
     }
 
-    let mut done: Vec<RecordedStep> = journal::load_steps(&connection, batch_id)?
-        .into_iter()
-        .filter(|recorded| recorded.status == StepStatus::Done)
-        .collect();
-    if done.is_empty() {
+    let recorded = journal::load_steps(&connection, batch_id)?;
+    let mut steps: Vec<UndoStep> = Vec::new();
+    let mut units: Vec<Range<usize>> = Vec::new();
+    for unit in undo_units(&recorded) {
+        let start = steps.len();
+        for index in unit {
+            let original = &recorded[index];
+            steps.push(UndoStep {
+                step: JournalStep {
+                    position: steps.len() as u32 + 1,
+                    row_id: original.step.row_id.clone(),
+                    group_id: original.step.group_id.clone(),
+                    role: inverse(original.step.role),
+                    volume_id: original.step.volume_id.clone(),
+                    from: original.step.to.clone(),
+                    to: original.step.from.clone(),
+                },
+                original_position: original.step.position,
+                expected: original.fingerprint,
+            });
+        }
+        units.push(start..steps.len());
+    }
+    if steps.is_empty() {
         return Err(CommandError::InvalidRequest(
             "nothing in this batch is left to undo".to_string(),
         ));
     }
-    done.reverse();
-
-    let steps: Vec<UndoStep> = done
-        .iter()
-        .enumerate()
-        .map(|(index, recorded)| UndoStep {
-            step: JournalStep {
-                position: index as u32 + 1,
-                row_id: recorded.step.row_id.clone(),
-                role: inverse(recorded.step.role),
-                volume_id: recorded.step.volume_id.clone(),
-                from: recorded.step.to.clone(),
-                to: recorded.step.from.clone(),
-            },
-            original_position: recorded.step.position,
-            expected: recorded.fingerprint,
-        })
-        .collect();
 
     let undo_id = Uuid::now_v7().to_string();
     let journal_steps: Vec<JournalStep> = steps
@@ -214,7 +217,14 @@ pub fn undo(
         total_steps: steps.len() as u32,
     });
 
-    let result = run_undo_steps(&mut connection, &undo_id, batch_id, &steps, &progress);
+    let result = run_undo_steps(
+        &mut connection,
+        &undo_id,
+        batch_id,
+        &steps,
+        &units,
+        &progress,
+    );
     if result.is_err() {
         let _ = journal::reconcile_batch(&mut connection, &undo_id);
     }
@@ -236,6 +246,7 @@ fn run_undo_steps(
     undo_id: &str,
     original_id: &str,
     steps: &[UndoStep],
+    units: &[Range<usize>],
     progress: &impl Fn(BatchProgress),
 ) -> Result<BatchResult, CommandError> {
     let total_steps = steps.len() as u32;
@@ -244,7 +255,7 @@ fn run_undo_steps(
     let mut completed_steps = 0u32;
     let next_position = |index: usize| steps.get(index + 1).map(|next| next.step.position);
 
-    for group in undo_groups(steps) {
+    for group in units.iter().cloned() {
         if let Some(reason) = group_blocker(&steps[group.clone()]) {
             for index in group {
                 let step = &steps[index].step;
@@ -356,20 +367,107 @@ fn roll_back(
     Ok(())
 }
 
-fn undo_groups(steps: &[UndoStep]) -> Vec<Range<usize>> {
-    let mut groups = Vec::new();
-    let mut index = 0;
-    while index < steps.len() {
-        let start = index;
-        if steps[index].step.role == StepRole::ToTemporary {
-            while index < steps.len() && steps[index].step.role != StepRole::FromTemporary {
-                index += 1;
+fn undo_units(recorded: &[RecordedStep]) -> Vec<Vec<usize>> {
+    let mut joined = UnionFind::new(recorded.len());
+    let mut first_in_group: HashMap<&str, usize> = HashMap::new();
+    let mut cycle_start = None;
+    for (index, recorded_step) in recorded.iter().enumerate() {
+        let step = &recorded_step.step;
+        match first_in_group.entry(step.group_id.as_str()) {
+            Entry::Occupied(first) => joined.join(*first.get(), index),
+            Entry::Vacant(slot) => {
+                slot.insert(index);
             }
         }
-        index = (index + 1).min(steps.len());
-        groups.push(start..index);
+        if step.role == StepRole::ToTemporary {
+            cycle_start = Some(index);
+        }
+        if let Some(start) = cycle_start {
+            joined.join(start, index);
+        }
+        if step.role == StepRole::FromTemporary {
+            cycle_start = None;
+        }
     }
-    groups
+
+    let mut members: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    for index in (0..recorded.len()).filter(|index| recorded[*index].status == StepStatus::Done) {
+        members.entry(joined.root(index)).or_default().push(index);
+    }
+    order_units(recorded, members.into_values().collect())
+}
+
+fn order_units(recorded: &[RecordedStep], units: Vec<Vec<usize>>) -> Vec<Vec<usize>> {
+    let unit_by_source: HashMap<String, usize> = units
+        .iter()
+        .enumerate()
+        .flat_map(|(unit, members)| {
+            members
+                .iter()
+                .map(move |index| (names::collision_key(&recorded[*index].step.from), unit))
+        })
+        .collect();
+
+    let mut waiting_on = vec![0usize; units.len()];
+    let mut releases: Vec<Vec<usize>> = vec![Vec::new(); units.len()];
+    for (unit, members) in units.iter().enumerate() {
+        for index in members {
+            let target = names::collision_key(&recorded[*index].step.to);
+            if let Some(&blocked) = unit_by_source.get(&target)
+                && blocked != unit
+            {
+                releases[unit].push(blocked);
+                waiting_on[blocked] += 1;
+            }
+        }
+    }
+
+    let latest = |unit: usize| units[unit].last().copied().unwrap_or_default();
+    let mut ready: BinaryHeap<(usize, usize)> = (0..units.len())
+        .filter(|unit| waiting_on[*unit] == 0)
+        .map(|unit| (latest(unit), unit))
+        .collect();
+    let mut order = Vec::with_capacity(units.len());
+    let mut placed = vec![false; units.len()];
+    while let Some((_, unit)) = ready.pop() {
+        order.push(unit);
+        placed[unit] = true;
+        for &released in &releases[unit] {
+            waiting_on[released] -= 1;
+            if waiting_on[released] == 0 {
+                ready.push((latest(released), released));
+            }
+        }
+    }
+    let mut stuck: Vec<usize> = (0..units.len()).filter(|unit| !placed[*unit]).collect();
+    stuck.sort_by_key(|unit| Reverse(latest(*unit)));
+    order.extend(stuck);
+
+    order
+        .into_iter()
+        .map(|unit| units[unit].iter().rev().copied().collect())
+        .collect()
+}
+
+struct UnionFind(Vec<usize>);
+
+impl UnionFind {
+    fn new(size: usize) -> Self {
+        Self((0..size).collect())
+    }
+
+    fn root(&mut self, mut index: usize) -> usize {
+        while self.0[index] != index {
+            self.0[index] = self.0[self.0[index]];
+            index = self.0[index];
+        }
+        index
+    }
+
+    fn join(&mut self, left: usize, right: usize) {
+        let (left, right) = (self.root(left), self.root(right));
+        self.0[left.max(right)] = left.min(right);
+    }
 }
 
 fn group_blocker(group: &[UndoStep]) -> Option<SkipReason> {
@@ -472,15 +570,23 @@ mod tests {
         }
 
         fn plan(&self, renames: &[(&str, &str)]) -> Plan {
+            let renames: Vec<(&str, &str, Option<&str>)> = renames
+                .iter()
+                .map(|(from, to)| (*from, *to, None))
+                .collect();
+            self.plan_with_companions(&renames)
+        }
+
+        fn plan_with_companions(&self, renames: &[(&str, &str, Option<&str>)]) -> Plan {
             let renames = renames
                 .iter()
-                .map(|(from, to)| ProposedRename {
+                .map(|(from, to, video)| ProposedRename {
                     row_id: from.to_string(),
                     source: self.path(from),
                     target: RenameTarget::SameFolder {
                         name: to.to_string(),
                     },
-                    companion_of: None,
+                    companion_of: video.map(str::to_string),
                 })
                 .collect();
             planner::plan(
@@ -494,6 +600,21 @@ mod tests {
 
         fn contents(&self, name: &str) -> Option<String> {
             fs::read_to_string(self.folder.path().join(name)).ok()
+        }
+
+        fn set_modified(&self, name: &str, time: SystemTime) {
+            fs::File::options()
+                .write(true)
+                .open(self.path(name))
+                .unwrap()
+                .set_modified(time)
+                .unwrap();
+        }
+
+        fn change(&self, name: &str) -> SystemTime {
+            let original_time = fs::metadata(self.path(name)).unwrap().modified().unwrap();
+            self.set_modified(name, SystemTime::now() + Duration::from_secs(3600));
+            original_time
         }
 
         fn names(&self) -> Vec<String> {
@@ -602,14 +723,7 @@ mod tests {
         let plan = workspace.plan(&[("a.txt", "b.txt"), ("b.txt", "a.txt")]);
         let result = execute(&workspace.gate, &workspace.journal, plan, |_| {}).unwrap();
 
-        let changed = fs::File::options()
-            .write(true)
-            .open(workspace.path("a.txt"))
-            .unwrap();
-        changed
-            .set_modified(SystemTime::now() + Duration::from_secs(3600))
-            .unwrap();
-
+        workspace.change("a.txt");
         let undone = undo(
             &workspace.gate,
             &workspace.journal,
@@ -629,13 +743,7 @@ mod tests {
         let plan = workspace.plan(&[("a.txt", "x.txt"), ("b.txt", "y.txt")]);
         let result = execute(&workspace.gate, &workspace.journal, plan, |_| {}).unwrap();
 
-        let file = fs::File::options()
-            .write(true)
-            .open(workspace.path("x.txt"))
-            .unwrap();
-        let original_time = file.metadata().unwrap().modified().unwrap();
-        file.set_modified(SystemTime::now() + Duration::from_secs(3600))
-            .unwrap();
+        let original_time = workspace.change("x.txt");
         let first = undo(
             &workspace.gate,
             &workspace.journal,
@@ -651,7 +759,7 @@ mod tests {
             BatchStatus::PartiallyUndone
         );
 
-        file.set_modified(original_time).unwrap();
+        workspace.set_modified("x.txt", original_time);
         let second = undo(
             &workspace.gate,
             &workspace.journal,
@@ -665,6 +773,109 @@ mod tests {
             workspace.batch_status(&result.batch_id),
             BatchStatus::Undone
         );
+    }
+
+    #[test]
+    fn a_changed_companion_keeps_its_video_renamed() {
+        let workspace = Workspace::new(&["v.mkv", "v.en.srt", "v.nfo"]);
+        let plan = workspace.plan_with_companions(&[
+            ("v.mkv", "w.mkv", None),
+            ("v.en.srt", "w.en.srt", Some("v.mkv")),
+            ("v.nfo", "w.nfo", Some("v.mkv")),
+        ]);
+        let result = execute(&workspace.gate, &workspace.journal, plan, |_| {}).unwrap();
+
+        workspace.change("w.en.srt");
+        let undone = undo(
+            &workspace.gate,
+            &workspace.journal,
+            &result.batch_id,
+            |_| {},
+        )
+        .unwrap();
+        assert_eq!(undone.skipped.len(), 3);
+        assert_eq!(workspace.names(), vec!["w.en.srt", "w.mkv", "w.nfo"]);
+    }
+
+    fn renumber_season(workspace: &Workspace) -> BatchResult {
+        let plan = workspace.plan_with_companions(&[
+            ("e1.mkv", "e2.mkv", None),
+            ("e1.srt", "e2.srt", Some("e1.mkv")),
+            ("e2.mkv", "e3.mkv", None),
+            ("e2.srt", "e3.srt", Some("e2.mkv")),
+        ]);
+        let result = execute(&workspace.gate, &workspace.journal, plan, |_| {}).unwrap();
+        assert_eq!(
+            workspace.names(),
+            vec!["e2.mkv", "e2.srt", "e3.mkv", "e3.srt"]
+        );
+        result
+    }
+
+    #[test]
+    fn undo_restores_a_renumbered_season_with_subtitles() {
+        let workspace = Workspace::new(&["e1.mkv", "e1.srt", "e2.mkv", "e2.srt"]);
+        let result = renumber_season(&workspace);
+
+        let undone = undo(
+            &workspace.gate,
+            &workspace.journal,
+            &result.batch_id,
+            |_| {},
+        )
+        .unwrap();
+        assert!(undone.skipped.is_empty());
+        assert_eq!(
+            workspace.names(),
+            vec!["e1.mkv", "e1.srt", "e2.mkv", "e2.srt"]
+        );
+        assert_eq!(workspace.contents("e1.srt").as_deref(), Some("e1.srt"));
+        assert_eq!(workspace.contents("e2.mkv").as_deref(), Some("e2.mkv"));
+    }
+
+    #[test]
+    fn a_changed_file_blocks_the_units_waiting_on_its_name() {
+        let workspace = Workspace::new(&["e1.mkv", "e1.srt", "e2.mkv", "e2.srt"]);
+        let result = renumber_season(&workspace);
+
+        workspace.change("e2.mkv");
+        let undone = undo(
+            &workspace.gate,
+            &workspace.journal,
+            &result.batch_id,
+            |_| {},
+        )
+        .unwrap();
+        assert_eq!(undone.skipped.len(), 4);
+        assert_eq!(
+            workspace.names(),
+            vec!["e2.mkv", "e2.srt", "e3.mkv", "e3.srt"]
+        );
+    }
+
+    #[test]
+    fn undo_waits_for_the_unit_holding_its_original_name() {
+        let workspace = Workspace::new(&["x.mkv", "x.srt", "y.mkv", "y.nfo"]);
+        let plan = workspace.plan_with_companions(&[
+            ("x.mkv", "y.mkv", None),
+            ("x.srt", "y.srt", Some("x.mkv")),
+            ("y.mkv", "z.mkv", None),
+            ("y.nfo", "z.nfo", Some("y.mkv")),
+        ]);
+        let order: Vec<&str> = plan.steps.iter().map(|step| step.row_id.as_str()).collect();
+        assert_eq!(order, vec!["y.mkv", "x.mkv", "x.srt", "y.nfo"]);
+        let result = execute(&workspace.gate, &workspace.journal, plan, |_| {}).unwrap();
+
+        let undone = undo(
+            &workspace.gate,
+            &workspace.journal,
+            &result.batch_id,
+            |_| {},
+        )
+        .unwrap();
+        assert!(undone.skipped.is_empty());
+        assert_eq!(workspace.names(), vec!["x.mkv", "x.srt", "y.mkv", "y.nfo"]);
+        assert_eq!(workspace.contents("y.mkv").as_deref(), Some("y.mkv"));
     }
 
     #[test]

@@ -92,6 +92,7 @@ export type StepRole = 'direct' | 'toTemporary' | 'fromTemporary';
 export type PlanStep = {
   position: number;
   rowId: string;
+  groupId: string;
   role: StepRole;
   from: string;
   to: string;

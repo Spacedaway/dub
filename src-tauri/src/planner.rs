@@ -382,6 +382,7 @@ impl StepBuilder {
         self.steps.push(PlanStep {
             position: self.steps.len() as u32 + 1,
             row_id: candidate.row_id.clone(),
+            group_id: candidate.group().clone(),
             role,
             from: from.to_string(),
             to: to.to_string(),

@@ -154,6 +154,7 @@ impl Fingerprint {
 pub struct JournalStep {
     pub position: u32,
     pub row_id: String,
+    pub group_id: String,
     pub role: StepRole,
     pub volume_id: String,
     pub from: String,
@@ -165,6 +166,7 @@ impl From<&PlanStep> for JournalStep {
         Self {
             position: step.position,
             row_id: step.row_id.clone(),
+            group_id: step.group_id.clone(),
             role: step.role,
             volume_id: step.volume_id.clone(),
             from: step.from.clone(),
@@ -230,8 +232,8 @@ pub fn begin_batch(
     )?;
     {
         let mut insert = transaction.prepare(
-            "INSERT INTO steps (batch_id, position, row_id, role, volume_id, from_path, to_path, status)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            "INSERT INTO steps (batch_id, position, row_id, group_id, role, volume_id, from_path, to_path, status)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         )?;
         for step in steps {
             let status = if step.position == 1 {
@@ -243,6 +245,7 @@ pub fn begin_batch(
                 batch_id,
                 step.position,
                 step.row_id,
+                step.group_id,
                 step.role.as_text(),
                 step.volume_id,
                 step.from,
@@ -374,22 +377,24 @@ pub fn load_batch(
 
 pub fn load_steps(connection: &Connection, batch_id: &str) -> rusqlite::Result<Vec<RecordedStep>> {
     let mut query = connection.prepare(
-        "SELECT position, row_id, role, volume_id, from_path, to_path, status, size, modified_ms
+        "SELECT position, row_id, COALESCE(group_id, row_id), role, volume_id, from_path, to_path,
+                status, size, modified_ms
          FROM steps WHERE batch_id = ?1 ORDER BY position",
     )?;
     let rows = query.query_map(params![batch_id], |row| {
-        let role: String = row.get(2)?;
-        let status: String = row.get(6)?;
-        let size: Option<i64> = row.get(7)?;
-        let modified_ms: Option<i64> = row.get(8)?;
+        let role: String = row.get(3)?;
+        let status: String = row.get(7)?;
+        let size: Option<i64> = row.get(8)?;
+        let modified_ms: Option<i64> = row.get(9)?;
         Ok(RecordedStep {
             step: JournalStep {
                 position: row.get(0)?,
                 row_id: row.get(1)?,
+                group_id: row.get(2)?,
                 role: StepRole::from_text(&role).ok_or_else(|| invalid_text("role", &role))?,
-                volume_id: row.get(3)?,
-                from: row.get(4)?,
-                to: row.get(5)?,
+                volume_id: row.get(4)?,
+                from: row.get(5)?,
+                to: row.get(6)?,
             },
             status: StepStatus::from_text(&status)
                 .ok_or_else(|| invalid_text("status", &status))?,
