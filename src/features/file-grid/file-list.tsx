@@ -19,6 +19,7 @@ import type {RowOutcome} from '@/ipc/contracts';
 import type {LivePlan} from '@/store/live-plan';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/ui/tooltip';
 import {rowStatus, type RowStatus} from '@/features/file-grid/row-status';
+import {stepTitles} from '@/features/step-editor/step-titles';
 
 const rowHeight = 34;
 const noFlags: Array<EpisodeFlag> = [];
@@ -131,14 +132,7 @@ function FileRow({
           isMuted && 'opacity-30'
         )}
       />
-      <p
-        className={cn(
-          'truncate',
-          isMuted ? 'text-muted-foreground' : 'font-medium'
-        )}
-        title={newName}>
-        {newName}
-      </p>
+      <NewName row={row} name={newName} isMuted={isMuted} />
       <p
         className="truncate text-xs text-muted-foreground"
         title={row.file.directory}>
@@ -213,6 +207,57 @@ function StatusIcon({status}: {status: RowStatus}) {
         </ReasonsTooltip>
       );
   }
+}
+
+function NewName({
+  row,
+  name,
+  isMuted,
+}: {
+  row: PreviewRow;
+  name: string;
+  isMuted: boolean;
+}) {
+  const className = cn(
+    'truncate',
+    isMuted ? 'text-muted-foreground' : 'font-medium'
+  );
+  if (!row.trace.some(entry => entry.step !== 'template')) {
+    return (
+      <p className={className} title={name}>
+        {name}
+      </p>
+    );
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger render={<p className={className} />}>
+        {name}
+      </TooltipTrigger>
+      <TooltipContent side="bottom" align="start" className="max-w-md">
+        <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-0.5 wrap-anywhere">
+          {row.trace.map(entry => (
+            <TraceLine
+              key={entry.number}
+              label={`${entry.number}. ${stepTitles[entry.step]}`}
+              text={entry.text}
+            />
+          ))}
+          <TraceLine label="New name" text={name} />
+        </div>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+function TraceLine({label, text}: {label: string; text: string}) {
+  return (
+    <>
+      <span className="opacity-60">{label}</span>
+      <span>{text}</span>
+    </>
+  );
 }
 
 function ReasonsTooltip({

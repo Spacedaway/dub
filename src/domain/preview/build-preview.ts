@@ -6,6 +6,7 @@ import {
 } from '@/domain/sanitising/sanitise-file-name';
 import {applyTextStep} from '@/domain/steps/apply-text-step';
 import type {NameStart, StepPipeline} from '@/domain/steps/compile-steps';
+import type {StepKind} from '@/domain/steps/step';
 import {classifyFile, type FileKind} from '@/domain/suggestions/classify-file';
 import {defaultTemplates} from '@/domain/suggestions/default-templates';
 import {fileTagValues, parsedTagValues} from '@/domain/tags/file-tags';
@@ -24,12 +25,15 @@ export type NameProposal =
   | {kind: 'emptyName'}
   | {kind: 'stepInvalid'};
 
+export type TraceEntry = {step: StepKind; number: number; text: string};
+
 export type PreviewRow = {
   file: ScannedFile;
   parsed: ParsedName | null;
   kind: FileKind;
   proposal: NameProposal;
   missingTags: Array<TagName>;
+  trace: Array<TraceEntry>;
   companionOf: string | null;
   lookup: FileLookup | null;
 };
@@ -77,6 +81,7 @@ function mainRow(
       kind,
       proposal: {kind: 'stepInvalid'},
       missingTags: [],
+      trace: [],
       companionOf: null,
       lookup,
     };
@@ -89,14 +94,21 @@ function mainRow(
   };
   const start = renderStart(pipeline.start, file, kind, values, counter);
   let text = start.text.normalize('NFC');
-  for (const step of pipeline.textSteps)
+  const trace: Array<TraceEntry> =
+    pipeline.start.kind === 'original'
+      ? []
+      : [{step: 'template', number: 1, text}];
+  for (const step of pipeline.textSteps) {
     text = applyTextStep(step, text).normalize('NFC');
+    trace.push({step: step.kind, number: step.number, text});
+  }
   return {
     file,
     parsed,
     kind,
     proposal: propose(file, text),
     missingTags: start.missingTags,
+    trace,
     companionOf: null,
     lookup,
   };
@@ -132,6 +144,7 @@ function companionRow(
         ? {kind: 'unchanged'}
         : followVideo(file, video.file, video.proposal),
     missingTags: [],
+    trace: [],
     companionOf: video?.file.path ?? null,
     lookup: null,
   };
