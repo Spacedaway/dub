@@ -1,7 +1,14 @@
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::contracts::{RenameFailure, VolumeInfo};
+
+pub enum DriveLocation {
+    Mounted(PathBuf),
+    Missing,
+    MountedTwice,
+    Untracked,
+}
 
 #[cfg(target_os = "macos")]
 mod macos;
@@ -32,6 +39,20 @@ pub fn directory_writable(directory: &Path) -> bool {
 
 pub fn path_present(path: &Path) -> bool {
     std::fs::symlink_metadata(path).is_ok()
+}
+
+#[cfg(target_os = "macos")]
+pub fn locate_volume(volume_id: &str, recorded_mount: &Path) -> DriveLocation {
+    native::locate_volume(volume_id, recorded_mount)
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn locate_volume(_volume_id: &str, _recorded_mount: &Path) -> DriveLocation {
+    DriveLocation::Untracked
+}
+
+pub fn is_stable_volume_id(volume_id: &str) -> bool {
+    volume_id.starts_with("uuid:") || volume_id.starts_with(r"\\?\Volume{")
 }
 
 #[cfg(not(windows))]

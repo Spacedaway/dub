@@ -7,6 +7,7 @@ use crate::contracts::{
     BatchKind, BatchStatus, JournalEntry, PlanStep, RenameFailure, SkipReason, StepRole,
     UndoAvailability,
 };
+use crate::drives::Drives;
 use crate::platform;
 
 #[derive(Debug, Clone)]
@@ -202,6 +203,14 @@ pub struct NewBatch<'a> {
     pub kind: BatchKind,
     pub undoes_batch_id: Option<&'a str>,
     pub plan_id: Option<&'a str>,
+    pub volumes: &'a [BatchVolume],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BatchVolume {
+    pub volume_id: String,
+    pub mount_point: String,
+    pub label: String,
 }
 
 pub fn plan_was_applied(connection: &Connection, plan_id: &str) -> rusqlite::Result<bool> {
@@ -232,6 +241,12 @@ pub fn begin_batch(
             env!("CARGO_PKG_VERSION"),
         ],
     )?;
+    for volume in batch.volumes {
+        transaction.execute(
+            "INSERT INTO batch_volumes (batch_id, volume_id, mount_point, label) VALUES (?1, ?2, ?3, ?4)",
+            params![batch_id, volume.volume_id, volume.mount_point, volume.label],
+        )?;
+    }
     {
         let mut insert = transaction.prepare(
             "INSERT INTO steps (batch_id, position, row_id, group_id, role, volume_id, from_path, to_path,
@@ -383,6 +398,23 @@ pub fn load_batch(
         .transpose()
 }
 
+pub fn load_batch_volumes(
+    connection: &Connection,
+    batch_id: &str,
+) -> rusqlite::Result<Vec<BatchVolume>> {
+    let mut query = connection.prepare(
+        "SELECT volume_id, mount_point, label FROM batch_volumes WHERE batch_id = ?1 ORDER BY volume_id",
+    )?;
+    let rows = query.query_map(params![batch_id], |row| {
+        Ok(BatchVolume {
+            volume_id: row.get(0)?,
+            mount_point: row.get(1)?,
+            label: row.get(2)?,
+        })
+    })?;
+    rows.collect()
+}
+
 pub fn load_steps(connection: &Connection, batch_id: &str) -> rusqlite::Result<Vec<RecordedStep>> {
     let mut query = connection.prepare(
         "SELECT position, row_id, COALESCE(group_id, row_id), role, volume_id, from_path, to_path,
@@ -469,29 +501,69 @@ pub fn recover(journal: &JournalPath) -> rusqlite::Result<()> {
         .collect::<rusqlite::Result<_>>()?;
 
     for batch_id in running {
-        interrupt_batch(&mut connection, &batch_id)?;
+        let drives = Drives::find_available(&load_batch_volumes(&connection, &batch_id)?);
+        interrupt_batch(&mut connection, &batch_id, &drives)?;
     }
     Ok(())
 }
 
-pub fn interrupt_batch(connection: &mut Connection, batch_id: &str) -> rusqlite::Result<()> {
+pub fn interrupt_batch(
+    connection: &mut Connection,
+    batch_id: &str,
+    drives: &Drives,
+) -> rusqlite::Result<()> {
     let transaction = connection.transaction()?;
-    settle_started_steps(&transaction, batch_id)?;
+    settle_started_steps(&transaction, batch_id, drives)?;
     finish_batch(&transaction, batch_id, BatchStatus::Interrupted)?;
     transaction.commit()
 }
 
-pub fn settle_started_steps(connection: &Connection, batch_id: &str) -> rusqlite::Result<()> {
+pub fn settle_batch_and_its_undo_batches(
+    connection: &mut Connection,
+    batch_id: &str,
+    drives: &Drives,
+) -> rusqlite::Result<()> {
+    let transaction = connection.transaction()?;
+    settle_started_steps(&transaction, batch_id, drives)?;
+    let unsettled_undo_batches: Vec<String> = transaction
+        .prepare(
+            "SELECT id FROM batches b WHERE undoes_batch_id = ?1
+               AND EXISTS (SELECT 1 FROM steps s WHERE s.batch_id = b.id AND s.status = 'started')",
+        )?
+        .query_map(params![batch_id], |row| row.get(0))?
+        .collect::<rusqlite::Result<_>>()?;
+    for undo_id in unsettled_undo_batches {
+        let undo_drives = Drives::find_available(&load_batch_volumes(&transaction, &undo_id)?);
+        settle_started_steps(&transaction, &undo_id, &undo_drives)?;
+    }
+    transaction.commit()
+}
+
+fn settle_started_steps(
+    connection: &Connection,
+    batch_id: &str,
+    drives: &Drives,
+) -> rusqlite::Result<()> {
     for recorded in load_steps(connection, batch_id)? {
         if recorded.status != StepStatus::Started {
             continue;
         }
-        let position = recorded.step.position;
-        let from = Path::new(&recorded.step.from);
-        let to = Path::new(&recorded.step.to);
-        match (platform::path_present(from), platform::path_present(to)) {
-            (true, false) => set_step_status(connection, batch_id, position, StepStatus::Planned)?,
-            (false, true) => set_step_done(connection, batch_id, position, Fingerprint::of(to))?,
+        let step = &recorded.step;
+        let from = drives.translate(&step.volume_id, &step.from);
+        let to = drives.translate(&step.volume_id, &step.to);
+        match (
+            platform::path_present(Path::new(&from)),
+            platform::path_present(Path::new(&to)),
+        ) {
+            (true, false) => {
+                set_step_status(connection, batch_id, step.position, StepStatus::Planned)?
+            }
+            (false, true) => set_step_done(
+                connection,
+                batch_id,
+                step.position,
+                Fingerprint::of(Path::new(&to)),
+            )?,
             (true, true) | (false, false) => {}
         }
     }

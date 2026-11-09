@@ -13,9 +13,11 @@ use crate::contracts::{
     BatchKind, BatchOutcome, BatchProgress, BatchResult, BatchStatus, Plan, RenameFailure,
     SkipReason, SkippedStep, StepRole,
 };
+use crate::drives::Drives;
 use crate::error::CommandError;
 use crate::journal::{
-    self, Fingerprint, JournalPath, JournalStep, NewBatch, RecordedStep, StepOutcome, StepStatus,
+    self, BatchVolume, Fingerprint, JournalPath, JournalStep, NewBatch, RecordedStep, StepOutcome,
+    StepStatus,
 };
 use crate::names;
 use crate::platform;
@@ -48,6 +50,7 @@ pub fn execute(
 ) -> Result<BatchResult, CommandError> {
     let _ticket = gate.enter()?;
     revalidate_steps(&plan)?;
+    let volumes = plan_volumes(&plan)?;
 
     let mut connection = journal.open()?;
     if journal::plan_was_applied(&connection, &plan.plan_id)? {
@@ -63,6 +66,7 @@ pub fn execute(
         kind: BatchKind::Rename,
         undoes_batch_id: None,
         plan_id: Some(&plan.plan_id),
+        volumes: &volumes,
     };
     journal::begin_batch(&mut connection, &batch, &steps)?;
     progress(BatchProgress::Started {
@@ -72,9 +76,42 @@ pub fn execute(
 
     let result = run_rename_steps(&mut connection, &batch_id, &steps, &progress);
     if result.is_err() {
-        let _ = journal::interrupt_batch(&mut connection, &batch_id);
+        let drives = Drives::as_recorded(&volumes);
+        let _ = journal::interrupt_batch(&mut connection, &batch_id, &drives);
     }
     result
+}
+
+fn plan_volumes(plan: &Plan) -> Result<Vec<BatchVolume>, CommandError> {
+    let mut volumes: Vec<BatchVolume> = Vec::new();
+    let mut checked_folders = HashSet::new();
+    for step in &plan.steps {
+        let Some(folder) = Path::new(&step.from).parent() else {
+            continue;
+        };
+        if !checked_folders.insert(folder) {
+            continue;
+        }
+        let volume = platform::volume_info(folder)?;
+        if volume.id != step.volume_id {
+            return Err(CommandError::InvalidRequest(format!(
+                "the drive holding step {} changed after planning",
+                step.position
+            )));
+        }
+        match volumes.iter().find(|known| known.volume_id == volume.id) {
+            Some(known) if known.mount_point != volume.mount_point => {
+                return Err(CommandError::DriveMountedTwice(volume.label));
+            }
+            Some(_) => {}
+            None => volumes.push(BatchVolume {
+                volume_id: volume.id,
+                mount_point: volume.mount_point,
+                label: volume.label,
+            }),
+        }
+    }
+    Ok(volumes)
 }
 
 fn run_rename_steps(
@@ -185,25 +222,29 @@ fn undo_with(
         ));
     }
 
+    let recorded_volumes = journal::load_batch_volumes(&connection, batch_id)?;
+    let mut drives = Drives::find(&recorded_volumes)?;
+    journal::settle_batch_and_its_undo_batches(&mut connection, batch_id, &drives)?;
+
     let recorded = journal::load_steps(&connection, batch_id)?;
     let mut steps: Vec<UndoStep> = Vec::new();
     let mut units: Vec<Range<usize>> = Vec::new();
     for unit in undo_units(&recorded) {
         let start = steps.len();
         for index in unit {
-            let original = &recorded[index];
+            let original = &recorded[index].step;
             steps.push(UndoStep {
                 step: JournalStep {
                     position: steps.len() as u32 + 1,
-                    row_id: original.step.row_id.clone(),
-                    group_id: original.step.group_id.clone(),
-                    role: inverse(original.step.role),
-                    volume_id: original.step.volume_id.clone(),
-                    from: original.step.to.clone(),
-                    to: original.step.from.clone(),
-                    undoes_position: Some(original.step.position),
+                    row_id: original.row_id.clone(),
+                    group_id: original.group_id.clone(),
+                    role: inverse(original.role),
+                    volume_id: original.volume_id.clone(),
+                    from: drives.translate(&original.volume_id, &original.to),
+                    to: drives.translate(&original.volume_id, &original.from),
+                    undoes_position: Some(original.position),
                 },
-                expected: original.fingerprint,
+                expected: recorded[index].fingerprint,
             });
         }
         units.push(start..steps.len());
@@ -219,11 +260,13 @@ fn undo_with(
         .iter()
         .map(|undo_step| undo_step.step.clone())
         .collect();
+    let current_volumes = drives.current_volumes(&recorded_volumes);
     let batch = NewBatch {
         id: &undo_id,
         kind: BatchKind::Undo,
         undoes_batch_id: Some(batch_id),
         plan_id: None,
+        volumes: &current_volumes,
     };
     journal::begin_batch(&mut connection, &batch, &journal_steps)?;
     progress(BatchProgress::Started {
@@ -231,9 +274,18 @@ fn undo_with(
         total_steps: steps.len() as u32,
     });
 
-    let result = run_undo_steps(&mut connection, &undo_id, &steps, &units, &progress, rename);
+    let result = run_undo_steps(
+        &mut connection,
+        &undo_id,
+        &steps,
+        &units,
+        &mut drives,
+        &progress,
+        rename,
+    );
     if result.is_err() {
-        let _ = journal::interrupt_batch(&mut connection, &undo_id);
+        let drives = Drives::as_recorded(&current_volumes);
+        let _ = journal::interrupt_batch(&mut connection, &undo_id, &drives);
     }
     result
 }
@@ -243,6 +295,7 @@ fn run_undo_steps(
     undo_id: &str,
     steps: &[UndoStep],
     units: &[Range<usize>],
+    drives: &mut Drives,
     progress: &impl Fn(BatchProgress),
     rename: &impl Fn(&Path, &Path) -> Result<(), RenameFailure>,
 ) -> Result<BatchResult, CommandError> {
@@ -253,7 +306,7 @@ fn run_undo_steps(
     let next_position = |index: usize| steps.get(index + 1).map(|next| next.step.position);
 
     for group in units.iter().cloned() {
-        if let Some(reason) = group_blocker(&steps[group.clone()]) {
+        if let Some(reason) = group_blocker(&steps[group.clone()], drives) {
             for index in group {
                 let step = &steps[index].step;
                 journal::record_step(
@@ -466,11 +519,14 @@ impl UnionFind {
     }
 }
 
-fn group_blocker(group: &[UndoStep]) -> Option<SkipReason> {
+fn group_blocker(group: &[UndoStep], drives: &mut Drives) -> Option<SkipReason> {
     let mut vacated_in_group: HashSet<String> = HashSet::new();
     let mut created_in_group: HashSet<String> = HashSet::new();
 
     for undo_step in group {
+        if !drives.holds(&undo_step.step.volume_id, &undo_step.step.from) {
+            return Some(SkipReason::FileMissing);
+        }
         let from_key = names::collision_key(&undo_step.step.from);
         let to_key = names::collision_key(&undo_step.step.to);
 
@@ -633,11 +689,13 @@ mod tests {
         fn begin_without_running(&self, plan: &Plan) -> &'static str {
             const BATCH_ID: &str = "interrupted";
             let steps: Vec<JournalStep> = plan.steps.iter().map(JournalStep::from).collect();
+            let volumes = plan_volumes(plan).unwrap();
             let batch = NewBatch {
                 id: BATCH_ID,
                 kind: BatchKind::Rename,
                 undoes_batch_id: None,
                 plan_id: Some(&plan.plan_id),
+                volumes: &volumes,
             };
             journal::begin_batch(&mut self.journal.open().unwrap(), &batch, &steps).unwrap();
             BATCH_ID
@@ -1019,6 +1077,85 @@ mod tests {
         let result = execute(&workspace.gate, &workspace.journal, plan, |_| {});
         assert!(matches!(result, Err(CommandError::InvalidRequest(_))));
         assert_eq!(workspace.names(), vec!["a.txt"]);
+    }
+
+    #[test]
+    fn execute_refuses_a_plan_whose_drive_changed() {
+        let workspace = Workspace::new(&["a.txt"]);
+        let mut plan = workspace.plan(&[("a.txt", "b.txt")]);
+        plan.steps[0].volume_id = "uuid:00000000-0000-0000-0000-000000000000".to_string();
+        let result = execute(&workspace.gate, &workspace.journal, plan, |_| {});
+        assert!(matches!(result, Err(CommandError::InvalidRequest(_))));
+        assert_eq!(workspace.names(), vec!["a.txt"]);
+    }
+
+    #[test]
+    #[ignore = "creates and mounts a disk image with hdiutil"]
+    fn undo_works_after_the_image_is_remounted_elsewhere() {
+        let scratch = tempfile::tempdir().unwrap();
+        let path = |name: &str| scratch.path().join(name).to_string_lossy().into_owned();
+        let (image, first_mount, second_mount) =
+            (path("remount.dmg"), path("first"), path("second"));
+        let hdiutil = |arguments: &[&str]| {
+            let status = std::process::Command::new("hdiutil")
+                .args(arguments)
+                .status()
+                .unwrap();
+            assert!(status.success(), "hdiutil {arguments:?} failed");
+        };
+        hdiutil(&[
+            "create",
+            "-size",
+            "16m",
+            "-fs",
+            "APFS",
+            "-volname",
+            "Remounted",
+            &image,
+        ]);
+        hdiutil(&["attach", "-nobrowse", "-mountpoint", &first_mount, &image]);
+
+        let file = |mount: &str, name: &str| Path::new(mount).join(name);
+        fs::write(file(&first_mount, "a.txt"), "a").unwrap();
+        fs::write(file(&first_mount, "b.txt"), "b").unwrap();
+        let journal = JournalPath(scratch.path().join("journal.db"));
+        let gate = BatchGate::default();
+        let renames = [("a.txt", "b.txt"), ("b.txt", "c.txt")]
+            .iter()
+            .map(|(from, to)| ProposedRename {
+                row_id: from.to_string(),
+                source: file(&first_mount, from).to_string_lossy().into_owned(),
+                target: RenameTarget::SameFolder {
+                    name: to.to_string(),
+                },
+                companion_of: None,
+            })
+            .collect();
+        let plan = planner::plan(
+            PlanRequest {
+                revision: 1,
+                renames,
+            },
+            &mut DiskProbe::default(),
+        );
+        let result = execute(&gate, &journal, plan, |_| {}).unwrap();
+        assert_eq!(result.outcome, BatchOutcome::Completed);
+
+        hdiutil(&["detach", &first_mount]);
+        let missing = undo(&gate, &journal, &result.batch_id, |_| {});
+        assert!(matches!(missing, Err(CommandError::DriveNotConnected(_))));
+
+        hdiutil(&["attach", "-nobrowse", "-mountpoint", &second_mount, &image]);
+        let undone = undo(&gate, &journal, &result.batch_id, |_| {}).unwrap();
+        let contents = |name: &str| fs::read_to_string(file(&second_mount, name)).ok();
+        let restored = (contents("a.txt"), contents("b.txt"), contents("c.txt"));
+        hdiutil(&["detach", &second_mount]);
+
+        assert!(undone.skipped.is_empty());
+        assert_eq!(
+            restored,
+            (Some("a".to_string()), Some("b".to_string()), None)
+        );
     }
 
     #[test]

@@ -1,9 +1,10 @@
-use std::ffi::{CString, c_char, c_void};
+use std::ffi::{CString, c_char, c_int, c_void};
 use std::io;
 use std::mem::{MaybeUninit, size_of};
 use std::os::unix::ffi::OsStrExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
+use super::DriveLocation;
 use crate::contracts::{ExclusiveRename, IdStability, RenameFailure, VolumeAccess, VolumeInfo};
 
 pub fn rename_no_overwrite(from: &Path, to: &Path) -> Result<(), RenameFailure> {
@@ -78,6 +79,55 @@ pub fn volume_info(path: &Path) -> io::Result<VolumeInfo> {
         },
         id_stability,
     })
+}
+
+pub fn locate_volume(volume_id: &str, recorded_mount: &Path) -> DriveLocation {
+    if !volume_id.starts_with("uuid:") {
+        return DriveLocation::Untracked;
+    }
+    let holds_volume = |mount: &Path| volume_info(mount).is_ok_and(|volume| volume.id == volume_id);
+    if holds_volume(recorded_mount) {
+        return DriveLocation::Mounted(recorded_mount.to_path_buf());
+    }
+    let mut mounts = local_mount_points()
+        .into_iter()
+        .filter(|mount| holds_volume(mount));
+    match (mounts.next(), mounts.next()) {
+        (Some(mount), None) => DriveLocation::Mounted(mount),
+        (Some(_), Some(_)) => DriveLocation::MountedTwice,
+        (None, _) => DriveLocation::Missing,
+    }
+}
+
+fn local_mount_points() -> Vec<PathBuf> {
+    // SAFETY: a null buffer asks only for the number of mounted file systems.
+    let count = unsafe { libc::getfsstat(std::ptr::null_mut(), 0, libc::MNT_NOWAIT) };
+    if count <= 0 {
+        return Vec::new();
+    }
+    let capacity = count as usize + 8;
+    let mut buffer: Vec<libc::statfs> = Vec::with_capacity(capacity);
+    // SAFETY: the buffer has room for `capacity` entries, and its size in bytes is passed with it.
+    let filled = unsafe {
+        libc::getfsstat(
+            buffer.as_mut_ptr(),
+            (capacity * size_of::<libc::statfs>()) as c_int,
+            libc::MNT_NOWAIT,
+        )
+    };
+    if filled <= 0 {
+        return Vec::new();
+    }
+    // SAFETY: getfsstat initialised the first `filled` entries, and never more than `capacity`.
+    unsafe { buffer.set_len((filled as usize).min(capacity)) };
+
+    buffer
+        .iter()
+        .filter(|mount| mount.f_flags & libc::MNT_LOCAL as u32 != 0)
+        // Reading an autofs trigger's attributes can block on the network.
+        .filter(|mount| text_from_c_characters(&mount.f_fstypename) != "autofs")
+        .map(|mount| PathBuf::from(text_from_c_characters(&mount.f_mntonname)))
+        .collect()
 }
 
 pub fn directory_writable(directory: &Path) -> bool {

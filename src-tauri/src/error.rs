@@ -13,6 +13,10 @@ pub enum CommandError {
     BatchNotFound(String),
     #[error("invalid request: {0}")]
     InvalidRequest(String),
+    #[error("“{0}” isn't connected. Connect it and try again")]
+    DriveNotConnected(String),
+    #[error("two connected drives have the same ID as “{0}”. Eject the copy and try again")]
+    DriveMountedTwice(String),
     #[error("internal error: {0}")]
     Internal(String),
 }
@@ -25,6 +29,8 @@ impl CommandError {
             Self::BatchAlreadyRunning => "batchAlreadyRunning",
             Self::BatchNotFound(_) => "batchNotFound",
             Self::InvalidRequest(_) => "invalidRequest",
+            Self::DriveNotConnected(_) => "driveNotConnected",
+            Self::DriveMountedTwice(_) => "driveMountedTwice",
             Self::Internal(_) => "internal",
         }
     }

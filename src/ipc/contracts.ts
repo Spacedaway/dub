@@ -171,6 +171,8 @@ export type CommandError = {
     | 'batchAlreadyRunning'
     | 'batchNotFound'
     | 'invalidRequest'
+    | 'driveNotConnected'
+    | 'driveMountedTwice'
     | 'internal';
   message: string;
 };
