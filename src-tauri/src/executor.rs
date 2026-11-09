@@ -10,8 +10,8 @@ use rusqlite::Connection;
 use uuid::Uuid;
 
 use crate::contracts::{
-    BatchKind, BatchOutcome, BatchProgress, BatchResult, BatchStatus, Plan, SkipReason,
-    SkippedStep, StepRole,
+    BatchKind, BatchOutcome, BatchProgress, BatchResult, BatchStatus, Plan, RenameFailure,
+    SkipReason, SkippedStep, StepRole,
 };
 use crate::error::CommandError;
 use crate::journal::{
@@ -144,7 +144,6 @@ fn run_rename_steps(
 
 struct UndoStep {
     step: JournalStep,
-    original_position: u32,
     expected: Option<Fingerprint>,
 }
 
@@ -153,6 +152,22 @@ pub fn undo(
     journal: &JournalPath,
     batch_id: &str,
     progress: impl Fn(BatchProgress),
+) -> Result<BatchResult, CommandError> {
+    undo_with(
+        gate,
+        journal,
+        batch_id,
+        progress,
+        &platform::rename_no_overwrite,
+    )
+}
+
+fn undo_with(
+    gate: &BatchGate,
+    journal: &JournalPath,
+    batch_id: &str,
+    progress: impl Fn(BatchProgress),
+    rename: &impl Fn(&Path, &Path) -> Result<(), RenameFailure>,
 ) -> Result<BatchResult, CommandError> {
     let _ticket = gate.enter()?;
     let mut connection = journal.open()?;
@@ -164,11 +179,10 @@ pub fn undo(
             "an undo can't itself be undone".to_string(),
         ));
     }
-    if matches!(original.status, BatchStatus::Running | BatchStatus::Undone) {
-        return Err(CommandError::InvalidRequest(format!(
-            "batch is {} and can't be undone",
-            original.status.as_text()
-        )));
+    if original.status == BatchStatus::Running {
+        return Err(CommandError::InvalidRequest(
+            "batch is still running and can't be undone".to_string(),
+        ));
     }
 
     let recorded = journal::load_steps(&connection, batch_id)?;
@@ -187,8 +201,8 @@ pub fn undo(
                     volume_id: original.step.volume_id.clone(),
                     from: original.step.to.clone(),
                     to: original.step.from.clone(),
+                    undoes_position: Some(original.step.position),
                 },
-                original_position: original.step.position,
                 expected: original.fingerprint,
             });
         }
@@ -217,37 +231,20 @@ pub fn undo(
         total_steps: steps.len() as u32,
     });
 
-    let result = run_undo_steps(
-        &mut connection,
-        &undo_id,
-        batch_id,
-        &steps,
-        &units,
-        &progress,
-    );
+    let result = run_undo_steps(&mut connection, &undo_id, &steps, &units, &progress, rename);
     if result.is_err() {
         let _ = journal::reconcile_batch(&mut connection, &undo_id);
     }
-
-    let still_done = journal::load_steps(&connection, batch_id)?
-        .iter()
-        .any(|recorded| recorded.status == StepStatus::Done);
-    let original_status = if still_done {
-        BatchStatus::PartiallyUndone
-    } else {
-        BatchStatus::Undone
-    };
-    journal::set_batch_status(&connection, batch_id, original_status)?;
     result
 }
 
 fn run_undo_steps(
     connection: &mut Connection,
     undo_id: &str,
-    original_id: &str,
     steps: &[UndoStep],
     units: &[Range<usize>],
     progress: &impl Fn(BatchProgress),
+    rename: &impl Fn(&Path, &Path) -> Result<(), RenameFailure>,
 ) -> Result<BatchResult, CommandError> {
     let total_steps = steps.len() as u32;
     let mut skipped = Vec::new();
@@ -278,7 +275,7 @@ fn run_undo_steps(
         let mut moved: Vec<usize> = Vec::new();
         for index in group.clone() {
             let step = &steps[index].step;
-            match platform::rename_no_overwrite(Path::new(&step.from), Path::new(&step.to)) {
+            match rename(Path::new(&step.from), Path::new(&step.to)) {
                 Ok(()) => {
                     let fingerprint = Fingerprint::of(Path::new(&step.to));
                     journal::record_step(
@@ -298,7 +295,8 @@ fn run_undo_steps(
                         StepOutcome::Failed(&failure),
                         None,
                     )?;
-                    roll_back(connection, undo_id, steps, &moved)?;
+                    let stranded = roll_back(connection, undo_id, steps, &moved, rename)?;
+                    touched_paths.extend(stranded);
                     journal::finish_batch(connection, undo_id, BatchStatus::Stopped)?;
                     return Ok(BatchResult {
                         batch_id: undo_id.to_string(),
@@ -318,18 +316,12 @@ fn run_undo_steps(
         }
 
         for index in moved {
-            let undo_step = &steps[index];
-            journal::set_step_status(
-                connection,
-                original_id,
-                undo_step.original_position,
-                StepStatus::Undone,
-            )?;
-            touched_paths.push(undo_step.step.to.clone());
+            let step = &steps[index].step;
+            touched_paths.push(step.to.clone());
             completed_steps += 1;
             progress(BatchProgress::StepDone {
-                position: undo_step.step.position,
-                row_id: undo_step.step.row_id.clone(),
+                position: step.position,
+                row_id: step.row_id.clone(),
             });
         }
     }
@@ -351,10 +343,12 @@ fn roll_back(
     undo_id: &str,
     steps: &[UndoStep],
     moved: &[usize],
-) -> Result<(), CommandError> {
+    rename: &impl Fn(&Path, &Path) -> Result<(), RenameFailure>,
+) -> Result<Vec<String>, CommandError> {
+    let mut stranded = Vec::new();
     for &index in moved.iter().rev() {
         let step = &steps[index].step;
-        if platform::rename_no_overwrite(Path::new(&step.to), Path::new(&step.from)).is_ok() {
+        if rename(Path::new(&step.to), Path::new(&step.from)).is_ok() {
             journal::record_step(
                 connection,
                 undo_id,
@@ -362,9 +356,11 @@ fn roll_back(
                 StepOutcome::RolledBack,
                 None,
             )?;
+        } else {
+            stranded.push(step.to.clone());
         }
     }
-    Ok(())
+    Ok(stranded)
 }
 
 fn undo_units(recorded: &[RecordedStep]) -> Vec<Vec<usize>> {
@@ -633,6 +629,22 @@ mod tests {
                 .unwrap()
                 .status
         }
+
+        fn step_statuses(&self, batch_id: &str) -> Vec<StepStatus> {
+            journal::load_steps(&self.journal.open().unwrap(), batch_id)
+                .unwrap()
+                .into_iter()
+                .map(|recorded| recorded.status)
+                .collect()
+        }
+    }
+
+    fn fails_from_a_temporary_name(from: &Path, to: &Path) -> Result<(), RenameFailure> {
+        let name = from.file_name().unwrap().to_string_lossy();
+        if name.starts_with("dub-tmp-") {
+            return Err(RenameFailure::FileInUse);
+        }
+        platform::rename_no_overwrite(from, to)
     }
 
     #[test]
@@ -671,9 +683,85 @@ mod tests {
         assert_eq!(workspace.names(), vec!["a.txt", "b.txt", "c.txt"]);
         assert_eq!(workspace.contents("a.txt").as_deref(), Some("a.txt"));
         assert_eq!(
-            workspace.batch_status(&result.batch_id),
-            BatchStatus::Undone
+            workspace.step_statuses(&result.batch_id),
+            vec![StepStatus::Undone; 4]
         );
+    }
+
+    #[test]
+    fn a_failed_rollback_leaves_the_file_undone_and_the_next_undo_finishes() {
+        let workspace = Workspace::new(&["a.txt", "b.txt"]);
+        let plan = workspace.plan(&[("a.txt", "b.txt"), ("b.txt", "a.txt")]);
+        let result = execute(&workspace.gate, &workspace.journal, plan, |_| {}).unwrap();
+
+        let first = undo_with(
+            &workspace.gate,
+            &workspace.journal,
+            &result.batch_id,
+            |_| {},
+            &fails_from_a_temporary_name,
+        )
+        .unwrap();
+        assert!(matches!(first.outcome, BatchOutcome::Stopped { .. }));
+        let names = workspace.names();
+        assert_eq!(names[0], "a.txt");
+        assert!(names[1].starts_with("dub-tmp-"));
+        assert_eq!(
+            workspace.step_statuses(&result.batch_id),
+            vec![StepStatus::Done, StepStatus::Done, StepStatus::Undone]
+        );
+
+        let second = undo(
+            &workspace.gate,
+            &workspace.journal,
+            &result.batch_id,
+            |_| {},
+        )
+        .unwrap();
+        assert!(second.skipped.is_empty());
+        assert_eq!(workspace.names(), vec!["a.txt", "b.txt"]);
+        assert_eq!(workspace.contents("a.txt").as_deref(), Some("a.txt"));
+        assert_eq!(workspace.contents("b.txt").as_deref(), Some("b.txt"));
+    }
+
+    #[test]
+    fn an_interrupted_undo_marks_the_original_step() {
+        let workspace = Workspace::new(&["a.txt", "b.txt"]);
+        let plan = workspace.plan(&[("a.txt", "b.txt"), ("b.txt", "a.txt")]);
+        let result = execute(&workspace.gate, &workspace.journal, plan, |_| {}).unwrap();
+
+        let quits_on_the_second_rename = |from: &Path, to: &Path| {
+            if to.ends_with("b.txt") {
+                panic!("the app quit");
+            }
+            platform::rename_no_overwrite(from, to)
+        };
+        let crashed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            undo_with(
+                &workspace.gate,
+                &workspace.journal,
+                &result.batch_id,
+                |_| {},
+                &quits_on_the_second_rename,
+            )
+        }));
+        assert!(crashed.is_err());
+        assert_eq!(
+            workspace.step_statuses(&result.batch_id),
+            vec![StepStatus::Done, StepStatus::Done, StepStatus::Undone]
+        );
+
+        journal::recover(&workspace.journal).unwrap();
+        let undone = undo(
+            &workspace.gate,
+            &workspace.journal,
+            &result.batch_id,
+            |_| {},
+        )
+        .unwrap();
+        assert!(undone.skipped.is_empty());
+        assert_eq!(workspace.names(), vec!["a.txt", "b.txt"]);
+        assert_eq!(workspace.contents("a.txt").as_deref(), Some("a.txt"));
     }
 
     #[test]
@@ -755,8 +843,8 @@ mod tests {
         assert_eq!(first.skipped[0].reason, SkipReason::FileChanged);
         assert_eq!(workspace.names(), vec!["b.txt", "x.txt"]);
         assert_eq!(
-            workspace.batch_status(&result.batch_id),
-            BatchStatus::PartiallyUndone
+            workspace.step_statuses(&result.batch_id),
+            vec![StepStatus::Done, StepStatus::Undone]
         );
 
         workspace.set_modified("x.txt", original_time);
@@ -770,8 +858,8 @@ mod tests {
         assert!(second.skipped.is_empty());
         assert_eq!(workspace.names(), vec!["a.txt", "b.txt"]);
         assert_eq!(
-            workspace.batch_status(&result.batch_id),
-            BatchStatus::Undone
+            workspace.step_statuses(&result.batch_id),
+            vec![StepStatus::Undone; 2]
         );
     }
 

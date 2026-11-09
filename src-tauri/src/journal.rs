@@ -159,6 +159,7 @@ pub struct JournalStep {
     pub volume_id: String,
     pub from: String,
     pub to: String,
+    pub undoes_position: Option<u32>,
 }
 
 impl From<&PlanStep> for JournalStep {
@@ -171,6 +172,7 @@ impl From<&PlanStep> for JournalStep {
             volume_id: step.volume_id.clone(),
             from: step.from.clone(),
             to: step.to.clone(),
+            undoes_position: None,
         }
     }
 }
@@ -232,8 +234,9 @@ pub fn begin_batch(
     )?;
     {
         let mut insert = transaction.prepare(
-            "INSERT INTO steps (batch_id, position, row_id, group_id, role, volume_id, from_path, to_path, status)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            "INSERT INTO steps (batch_id, position, row_id, group_id, role, volume_id, from_path, to_path,
+                                undoes_position, status)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         )?;
         for step in steps {
             let status = if step.position == 1 {
@@ -250,6 +253,7 @@ pub fn begin_batch(
                 step.volume_id,
                 step.from,
                 step.to,
+                step.undoes_position,
                 status.as_text(),
             ])?;
         }
@@ -286,6 +290,7 @@ pub fn record_step(
                 "UPDATE steps SET status = 'skipped', detail = '\"rolledBack\"' WHERE batch_id = ?1 AND position = ?2",
                 params![batch_id, position],
             )?;
+            set_original_status(&transaction, batch_id, position, StepStatus::Done)?;
         }
     }
     if let Some(next_position) = next_position {
@@ -323,6 +328,21 @@ fn set_step_done(
             fingerprint.map(|fingerprint| fingerprint.modified_ms),
         ],
     )?;
+    set_original_status(connection, batch_id, position, StepStatus::Undone)
+}
+
+fn set_original_status(
+    connection: &Connection,
+    undo_id: &str,
+    position: u32,
+    status: StepStatus,
+) -> rusqlite::Result<()> {
+    connection.execute(
+        "UPDATE steps SET status = ?3
+         WHERE batch_id = (SELECT undoes_batch_id FROM batches WHERE id = ?1)
+           AND position = (SELECT undoes_position FROM steps WHERE batch_id = ?1 AND position = ?2)",
+        params![undo_id, position, status.as_text()],
+    )?;
     Ok(())
 }
 
@@ -334,18 +354,6 @@ pub fn finish_batch(
     connection.execute(
         "UPDATE batches SET status = ?2, finished_at = ?3 WHERE id = ?1",
         params![batch_id, status.as_text(), now_ms()],
-    )?;
-    Ok(())
-}
-
-pub fn set_batch_status(
-    connection: &Connection,
-    batch_id: &str,
-    status: BatchStatus,
-) -> rusqlite::Result<()> {
-    connection.execute(
-        "UPDATE batches SET status = ?2 WHERE id = ?1",
-        params![batch_id, status.as_text()],
     )?;
     Ok(())
 }
@@ -378,7 +386,7 @@ pub fn load_batch(
 pub fn load_steps(connection: &Connection, batch_id: &str) -> rusqlite::Result<Vec<RecordedStep>> {
     let mut query = connection.prepare(
         "SELECT position, row_id, COALESCE(group_id, row_id), role, volume_id, from_path, to_path,
-                status, size, modified_ms
+                status, size, modified_ms, undoes_position
          FROM steps WHERE batch_id = ?1 ORDER BY position",
     )?;
     let rows = query.query_map(params![batch_id], |row| {
@@ -395,6 +403,7 @@ pub fn load_steps(connection: &Connection, batch_id: &str) -> rusqlite::Result<V
                 volume_id: row.get(4)?,
                 from: row.get(5)?,
                 to: row.get(6)?,
+                undoes_position: row.get(10)?,
             },
             status: StepStatus::from_text(&status)
                 .ok_or_else(|| invalid_text("status", &status))?,
