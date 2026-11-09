@@ -37,11 +37,15 @@ export type PreviewRow = {
   trace: Array<TraceEntry>;
   companionOf: string | null;
   lookup: FileLookup | null;
+  override: string | null;
 };
 
-export type RowEdits = {excluded: ReadonlySet<string>};
+export type RowEdits = {
+  excluded: ReadonlySet<string>;
+  overrides: ReadonlyMap<string, string>;
+};
 
-export const noRowEdits: RowEdits = {excluded: new Set()};
+export const noRowEdits: RowEdits = {excluded: new Set(), overrides: new Map()};
 
 export function buildPreview(
   files: Array<ScannedFile>,
@@ -63,7 +67,8 @@ export function buildPreview(
         parsedNames.get(file.path) ?? null,
         lookups.get(file.path) ?? null,
         pipeline,
-        counter
+        counter,
+        rowEdits.overrides.get(file.path) ?? null
       ),
     ])
   );
@@ -71,10 +76,12 @@ export function buildPreview(
     if (!mainRows.has(file.path))
       mainRows.set(
         file.path,
-        excludedRow(
+        unrenderedRow(
           file,
           parsedNames.get(file.path) ?? null,
-          lookups.get(file.path) ?? null
+          lookups.get(file.path) ?? null,
+          {kind: 'excluded'},
+          rowEdits.overrides.get(file.path) ?? null
         )
       );
   }
@@ -91,22 +98,13 @@ function mainRow(
   parsed: ParsedName | null,
   lookup: FileLookup | null,
   pipeline: StepPipeline,
-  counter: CounterIndexes
+  counter: CounterIndexes,
+  override: string | null
 ): PreviewRow {
-  const kind = classifyFile(parsed);
-  if (pipeline.kind === 'invalid') {
-    return {
-      file,
-      parsed,
-      kind,
-      proposal: {kind: 'stepInvalid'},
-      missingTags: [],
-      trace: [],
-      companionOf: null,
-      lookup,
-    };
-  }
+  if (pipeline.kind === 'invalid')
+    return unrenderedRow(file, parsed, lookup, {kind: 'stepInvalid'}, override);
 
+  const kind = classifyFile(parsed);
   const values = {
     ...fileTagValues(file),
     ...parsedTagValues(parsed),
@@ -126,28 +124,32 @@ function mainRow(
     file,
     parsed,
     kind,
-    proposal: propose(file, text),
-    missingTags: start.missingTags,
+    proposal: propose(file, override ?? text),
+    missingTags: override === null ? start.missingTags : [],
     trace,
     companionOf: null,
     lookup,
+    override,
   };
 }
 
-function excludedRow(
+function unrenderedRow(
   file: ScannedFile,
   parsed: ParsedName | null,
-  lookup: FileLookup | null
+  lookup: FileLookup | null,
+  proposal: NameProposal,
+  override: string | null
 ): PreviewRow {
   return {
     file,
     parsed,
     kind: classifyFile(parsed),
-    proposal: {kind: 'excluded'},
+    proposal,
     missingTags: [],
     trace: [],
     companionOf: null,
     lookup,
+    override,
   };
 }
 
@@ -177,33 +179,38 @@ function companionRow(
     parsed: null,
     kind: 'generic',
     proposal:
-      video === undefined
-        ? {kind: 'unchanged'}
-        : followVideo(file, video.file, video.proposal),
+      video === undefined ? {kind: 'unchanged'} : followVideo(file, video),
     missingTags: [],
     trace: [],
     companionOf: video?.file.path ?? null,
     lookup: null,
+    override: null,
   };
 }
 
-function followVideo(
-  file: ScannedFile,
-  video: ScannedFile,
-  videoProposal: NameProposal
-): NameProposal {
-  if (videoProposal.kind === 'excluded') return {kind: 'excluded'};
-  if (videoProposal.kind !== 'renamed') return {kind: 'unchanged'};
-  const newStem = videoProposal.name.slice(
-    0,
-    videoProposal.name.length - video.extension.length
-  );
+function followVideo(file: ScannedFile, video: PreviewRow): NameProposal {
+  if (video.proposal.kind === 'excluded') return {kind: 'excluded'};
+  if (video.proposal.kind !== 'renamed') return {kind: 'unchanged'};
   const currentName = file.name.normalize('NFC');
   const suffix = sanitiseCompanionSuffix(
-    currentName.slice(video.stem.normalize('NFC').length)
+    currentName.slice(video.file.stem.normalize('NFC').length)
   );
-  const name = (newStem + suffix).normalize('NFC');
+  const name = (newStem(video) + suffix).normalize('NFC');
   return name === currentName ? {kind: 'unchanged'} : {kind: 'renamed', name};
+}
+
+export function newName(row: PreviewRow): string {
+  return row.proposal.kind === 'renamed' ? row.proposal.name : row.file.name;
+}
+
+export function newStem(row: PreviewRow): string {
+  return row.proposal.kind === 'renamed'
+    ? stemOf(row.proposal.name, row.file.extension)
+    : row.file.stem.normalize('NFC');
+}
+
+function stemOf(name: string, extension: string): string {
+  return name.slice(0, name.length - extension.length);
 }
 
 function propose(file: ScannedFile, stem: string): NameProposal {

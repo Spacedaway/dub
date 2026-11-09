@@ -164,6 +164,15 @@ describe('followPlanning', () => {
     ]);
   });
 
+  it('plans again with an edited name, cleaned up', async () => {
+    useSession.getState().setNameOverride('/media/a.mkv', 'b: c');
+    await vi.advanceTimersByTimeAsync(planningDelayMs);
+
+    expect(pendingPlans.map(({request}) => targetNames(request))).toEqual([
+      'b - c.mkv',
+    ]);
+  });
+
   it('plans once the names stop changing', async () => {
     useSession.getState().setTemplateSource('one');
     await vi.advanceTimersByTimeAsync(planningDelayMs - 1);

@@ -32,10 +32,15 @@ import {
   gridColumns,
   gridFeatures,
   gridTemplateColumns,
-  PreviewRowContext,
   toggleIncluded,
   type GridRowModel,
 } from '@/features/file-grid/grid-columns';
+import {
+  canEdit,
+  GridActionsContext,
+  PreviewRowContext,
+  type GridActions,
+} from '@/features/file-grid/grid-context';
 import {rowStatus, type RowStatus} from '@/features/file-grid/row-status';
 
 const rowHeight = 34;
@@ -55,6 +60,7 @@ export function FileGrid({rows, flags, outcomes, livePlan}: FileGridProps) {
   const companions = useSession(state => state.companions);
   const excluded = useSession(state => state.rowEdits.excluded);
   const setExcluded = useSession(state => state.setExcluded);
+  const setNameOverride = useSession(state => state.setNameOverride);
   const mainFiles = useMemo(
     () => files.filter(file => !companions.has(file.path)),
     [files, companions]
@@ -117,19 +123,36 @@ export function FileGrid({rows, flags, outcomes, livePlan}: FileGridProps) {
   const tableRows = table.getRowModel().rows;
 
   const [activeRowId, setActiveRowId] = useState<string | null>(null);
+  const [editingRowId, setEditingRowId] = useState<string | null>(null);
   const rowIndexes = useMemo(
     () => new Map(tableRows.map((row, index) => [row.id, index])),
     [tableRows]
   );
-  const activeIndex =
-    activeRowId === null ? -1 : (rowIndexes.get(activeRowId) ?? -1);
+  const activeIndex = indexOf(rowIndexes, activeRowId);
+  const editingIndex = indexOf(rowIndexes, editingRowId);
   const rangeExtractor = useCallback(
-    (range: Range) => withIndex(defaultRangeExtractor(range), activeIndex),
-    [activeIndex]
+    (range: Range) =>
+      withIndexes(defaultRangeExtractor(range), [activeIndex, editingIndex]),
+    [activeIndex, editingIndex]
   );
   const rowElementId = useId();
 
   const scrollElement = useRef<HTMLDivElement>(null);
+  const gridElement = useRef<HTMLTableElement>(null);
+  const gridActions: GridActions = useMemo(
+    () => ({
+      finishEditing(path, stem, returnFocus) {
+        if (stem !== null) setNameOverride(path, stem);
+        setEditingRowId(null);
+        if (returnFocus) {
+          requestAnimationFrame(() =>
+            gridElement.current?.focus({preventScroll: true})
+          );
+        }
+      },
+    }),
+    [setNameOverride]
+  );
   // oxlint-disable-next-line react/incompatible-library -- only affects React Compiler memoisation.
   const virtualiser = useVirtualizer({
     count: tableRows.length,
@@ -149,12 +172,24 @@ export function FileGrid({rows, flags, outcomes, livePlan}: FileGridProps) {
     virtualiser.scrollToIndex(index, {align: 'auto'});
   }
 
+  function startEditing(rowId: string) {
+    const previewRow = rowsByPath.get(rowId);
+    if (previewRow === undefined || !canEdit(previewRow)) return;
+    setActiveRowId(rowId);
+    setEditingRowId(rowId);
+  }
+
   function handleKeyDown(event: KeyboardEvent<HTMLTableElement>) {
     if (event.target !== event.currentTarget) return;
+    const activeRow = tableRows[activeIndex];
     if (event.key === ' ') {
       event.preventDefault();
-      const row = tableRows[activeIndex];
-      if (row !== undefined) toggleIncluded(row, event.shiftKey);
+      if (activeRow !== undefined) toggleIncluded(activeRow, event.shiftKey);
+      return;
+    }
+    if (event.key === 'Enter' || event.key === 'F2') {
+      event.preventDefault();
+      if (activeRow !== undefined) startEditing(activeRow.id);
       return;
     }
     const visibleRows = Math.max(
@@ -177,12 +212,20 @@ export function FileGrid({rows, flags, outcomes, livePlan}: FileGridProps) {
   function handleClick(event: MouseEvent<HTMLTableElement>) {
     const rowId = rowIdAt(event.target);
     if (rowId !== null) setActiveRowId(rowId);
-    event.currentTarget.focus({preventScroll: true});
+    if (!isInside(event.target, 'input'))
+      event.currentTarget.focus({preventScroll: true});
+  }
+
+  function handleDoubleClick(event: MouseEvent<HTMLTableElement>) {
+    if (isInside(event.target, 'input, button, [role="checkbox"]')) return;
+    const rowId = rowIdAt(event.target);
+    if (rowId !== null) startEditing(rowId);
   }
 
   return (
     <div ref={scrollElement} className="min-h-0 flex-1 overflow-y-auto">
       <table
+        ref={gridElement}
         // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-to-interactive-role -- a table with role="grid" is the ARIA grid pattern.
         role="grid"
         tabIndex={0}
@@ -192,7 +235,8 @@ export function FileGrid({rows, flags, outcomes, livePlan}: FileGridProps) {
         }
         className="group/grid grid outline-none"
         onKeyDown={handleKeyDown}
-        onClick={handleClick}>
+        onClick={handleClick}
+        onDoubleClick={handleDoubleClick}>
         <thead className="sticky top-0 z-10 grid bg-background">
           <tr
             aria-rowindex={1}
@@ -215,23 +259,26 @@ export function FileGrid({rows, flags, outcomes, livePlan}: FileGridProps) {
         <tbody
           className="relative grid"
           style={{height: virtualiser.getTotalSize()}}>
-          {virtualiser.getVirtualItems().map(item => {
-            const row = tableRows[item.index];
-            const previewRow = row && rowsByPath.get(row.id);
-            if (row === undefined || previewRow === undefined) return null;
-            return (
-              <GridRow
-                key={row.id}
-                row={row}
-                elementId={`${rowElementId}-${item.index}`}
-                isActive={item.index === activeIndex}
-                rowIndex={item.index + 2}
-                offset={item.start - headerHeight}
-                previewRow={previewRow}
-                status={statusOf(previewRow)}
-              />
-            );
-          })}
+          <GridActionsContext value={gridActions}>
+            {virtualiser.getVirtualItems().map(item => {
+              const row = tableRows[item.index];
+              const previewRow = row && rowsByPath.get(row.id);
+              if (row === undefined || previewRow === undefined) return null;
+              return (
+                <GridRow
+                  key={row.id}
+                  row={row}
+                  elementId={`${rowElementId}-${item.index}`}
+                  isActive={item.index === activeIndex}
+                  isEditing={item.index === editingIndex}
+                  rowIndex={item.index + 2}
+                  offset={item.start - headerHeight}
+                  previewRow={previewRow}
+                  status={statusOf(previewRow)}
+                />
+              );
+            })}
+          </GridActionsContext>
         </tbody>
       </table>
     </div>
@@ -242,6 +289,7 @@ type GridRowProps = {
   row: GridRowModel;
   elementId: string;
   isActive: boolean;
+  isEditing: boolean;
   rowIndex: number;
   offset: number;
   previewRow: PreviewRow;
@@ -252,6 +300,7 @@ const GridRow = memo(function GridRow({
   row,
   elementId,
   isActive,
+  isEditing,
   rowIndex,
   offset,
   previewRow,
@@ -265,14 +314,14 @@ const GridRow = memo(function GridRow({
       aria-rowindex={rowIndex}
       className={cn(
         rowLayout,
-        'absolute inset-x-0 top-0 border-b border-border/60 text-body data-active:bg-primary/6 group-focus/grid:data-active:bg-primary/15'
+        'group/row absolute inset-x-0 top-0 border-b border-border/60 text-body select-none data-active:bg-primary/6 group-focus/grid:data-active:bg-primary/15'
       )}
       style={{
         gridTemplateColumns,
         height: rowHeight,
         transform: `translateY(${offset}px)`,
       }}>
-      <PreviewRowContext value={{row: previewRow, status}}>
+      <PreviewRowContext value={{row: previewRow, status, isEditing}}>
         {row.getAllCells().map(cell => (
           // oxlint-disable-next-line jsx-a11y/control-has-associated-label -- the content comes from FlexRender, which the rule can't see.
           <td key={cell.id} className="min-w-0">
@@ -316,7 +365,27 @@ function rowIdAt(target: EventTarget): string | null {
     : null;
 }
 
-function withIndex(indexes: Array<number>, index: number): Array<number> {
-  if (index < 0 || indexes.includes(index)) return indexes;
-  return [...indexes, index].sort((left, right) => left - right);
+function isInside(target: EventTarget, selector: string): boolean {
+  return target instanceof Element && target.closest(selector) !== null;
+}
+
+function indexOf(
+  indexes: ReadonlyMap<string, number>,
+  rowId: string | null
+): number {
+  return rowId === null ? -1 : (indexes.get(rowId) ?? -1);
+}
+
+function withIndexes(
+  indexes: Array<number>,
+  extra: Array<number>
+): Array<number> {
+  const missing = extra.filter(
+    (index, position) =>
+      index >= 0 &&
+      !indexes.includes(index) &&
+      extra.indexOf(index) === position
+  );
+  if (missing.length === 0) return indexes;
+  return [...indexes, ...missing].sort((left, right) => left - right);
 }

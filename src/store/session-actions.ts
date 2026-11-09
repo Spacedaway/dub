@@ -96,7 +96,8 @@ export async function applyPlan(plan: Plan): Promise<void> {
     await rememberAppliedShows(plan.steps.map(step => step.rowId));
   await finishBatch(
     result,
-    plan.steps.flatMap(step => [step.from, step.to])
+    plan.steps.flatMap(step => [step.from, step.to]),
+    result === null ? new Map() : finishedMoves(plan, result)
   );
   if (result === null) return;
 
@@ -118,7 +119,7 @@ export async function undoLatestBatch(): Promise<void> {
   const result = await runBatch('undo', 0, onProgress =>
     commands.undo({batchId}, onProgress)
   );
-  await finishBatch(result, []);
+  await finishBatch(result, [], new Map());
   if (result === null) return;
 
   const [firstSkip] = result.skipped;
@@ -159,17 +160,32 @@ async function runBatch(
   }
 }
 
+function finishedMoves(
+  plan: Plan,
+  result: BatchResult
+): ReadonlyMap<string, string> {
+  const stoppedAt =
+    result.outcome.kind === 'stopped'
+      ? result.outcome.position
+      : Number.POSITIVE_INFINITY;
+  return new Map(
+    plan.steps
+      .filter(step => step.position < stoppedAt)
+      .map(step => [step.rowId, step.to])
+  );
+}
+
 async function finishBatch(
   result: BatchResult | null,
-  extraPaths: Array<string>
+  extraPaths: Array<string>,
+  overrideMoves: ReadonlyMap<string, string>
 ): Promise<void> {
   const previousPaths = useSession.getState().files.map(file => file.path);
   try {
-    await refreshFiles([
-      ...previousPaths,
-      ...(result?.touchedPaths ?? []),
-      ...extraPaths,
-    ]);
+    await refreshFiles(
+      [...previousPaths, ...(result?.touchedPaths ?? []), ...extraPaths],
+      overrideMoves
+    );
     await loadUndoableBatch();
   } finally {
     useSession.getState().markDiskChanged();
@@ -177,13 +193,16 @@ async function finishBatch(
   }
 }
 
-async function refreshFiles(paths: Array<string>): Promise<void> {
+async function refreshFiles(
+  paths: Array<string>,
+  overrideMoves: ReadonlyMap<string, string>
+): Promise<void> {
   const unique = [...new Set(paths)];
   if (unique.length === 0) return useSession.getState().setFiles([]);
   try {
     const response = await commands.scan({paths: unique, folders: 'topLevel'});
     useSession.getState().addVolumes(response.volumes);
-    useSession.getState().setFiles(response.files);
+    useSession.getState().setFiles(response.files, overrideMoves);
   } catch (error) {
     toast.error(`Couldn't refresh the file list: ${errorMessage(error)}`);
   }

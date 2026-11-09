@@ -54,7 +54,10 @@ type SessionState = {
 };
 
 type SessionActions = {
-  setFiles: (files: Array<ScannedFile>) => void;
+  setFiles: (
+    files: Array<ScannedFile>,
+    overrideMoves?: ReadonlyMap<string, string>
+  ) => void;
   setTemplateSource: (source: string) => void;
   setTemplateEnabled: (enabled: boolean) => void;
   addTextStep: (kind: TextStepKind) => string;
@@ -62,6 +65,8 @@ type SessionActions = {
   deleteTextStep: (id: string) => void;
   moveTextStep: (id: string, offset: -1 | 1) => void;
   setExcluded: (excluded: ReadonlySet<string>) => void;
+  setNameOverride: (path: string, stem: string | null) => void;
+  resetNameOverrides: () => void;
   setActivity: (activity: Activity) => void;
   setUndoableBatchId: (batchId: string | null) => void;
   markDiskChanged: () => void;
@@ -79,6 +84,21 @@ function withTemplate(
   changes: Partial<TemplateStep>
 ): {steps: Steps} {
   return {steps: {...steps, template: {...steps.template, ...changes}}};
+}
+
+function rowEditsFor(
+  rowEdits: RowEdits,
+  paths: ReadonlySet<string>,
+  overrideMoves: ReadonlyMap<string, string>
+): RowEdits {
+  return {
+    excluded: new Set([...rowEdits.excluded].filter(path => paths.has(path))),
+    overrides: new Map(
+      [...rowEdits.overrides]
+        .map(([path, stem]) => [overrideMoves.get(path) ?? path, stem] as const)
+        .filter(([path]) => paths.has(path))
+    ),
+  };
 }
 
 function withTextSteps(
@@ -105,7 +125,7 @@ export const useSession = create<SessionState & SessionActions>()(
     showLookups: new Map(),
     lookups: noLookups,
 
-    setFiles(files) {
+    setFiles(files, overrideMoves = new Map()) {
       const sorted = [...files].sort(
         (left, right) =>
           compareNaturally(left.directory, right.directory) ||
@@ -122,16 +142,15 @@ export const useSession = create<SessionState & SessionActions>()(
         [...get().showLookups].filter(([key]) => groupKeys.has(key))
       );
       const orderedFiles = orderCompanionsAfterVideos(sorted, companions);
-      const paths = new Set(sorted.map(file => file.path));
       set({
         files: orderedFiles,
         parsedNames,
         companions,
-        rowEdits: {
-          excluded: new Set(
-            [...get().rowEdits.excluded].filter(path => paths.has(path))
-          ),
-        },
+        rowEdits: rowEditsFor(
+          get().rowEdits,
+          new Set(sorted.map(file => file.path)),
+          overrideMoves
+        ),
         showLookups,
         lookups: deriveLookups(
           orderedFiles,
@@ -186,6 +205,16 @@ export const useSession = create<SessionState & SessionActions>()(
     },
     setExcluded(excluded) {
       set({rowEdits: {...get().rowEdits, excluded}});
+    },
+    setNameOverride(path, stem) {
+      const {rowEdits} = get();
+      const overrides = new Map(rowEdits.overrides);
+      if (stem === null || stem.trim() === '') overrides.delete(path);
+      else overrides.set(path, stem.normalize('NFC'));
+      set({rowEdits: {...rowEdits, overrides}});
+    },
+    resetNameOverrides() {
+      set({rowEdits: {...get().rowEdits, overrides: new Map()}});
     },
     setActivity(activity) {
       set({activity});

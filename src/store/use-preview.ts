@@ -28,6 +28,7 @@ export type Preview = {
   readyCount: number;
   blockedCount: number;
   excludedCount: number;
+  editCount: number;
 };
 
 export function usePreview(): Preview {
@@ -78,6 +79,10 @@ export function usePreview(): Preview {
     () => rows.filter(row => row.proposal.kind === 'excluded').length,
     [rows]
   );
+  const editCount = useMemo(
+    () => rows.filter(row => row.override !== null).length,
+    [rows]
+  );
 
   return {
     compiledSteps,
@@ -90,6 +95,7 @@ export function usePreview(): Preview {
     readyPlan: livePlan.kind === 'planned' ? livePlan.plan : null,
     ...counts,
     excludedCount,
+    editCount,
   };
 }
 

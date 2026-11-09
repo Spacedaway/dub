@@ -1,9 +1,4 @@
-import {
-  createContext,
-  use,
-  type PropsWithChildren,
-  type ReactNode,
-} from 'react';
+import {use, type PropsWithChildren, type ReactNode} from 'react';
 import {
   createColumnHelper,
   createExpandedRowModel,
@@ -22,22 +17,27 @@ import {
   CircleDashedIcon,
   CircleMinusIcon,
   CornerDownRightIcon,
+  PencilIcon,
+  RotateCcwIcon,
   TriangleAlertIcon,
 } from 'lucide-react';
 
 import type {ParsedName} from '@/domain/parsing/parsed-name';
-import type {PreviewRow} from '@/domain/preview/build-preview';
+import {newName, type PreviewRow} from '@/domain/preview/build-preview';
 import type {FileKind} from '@/domain/suggestions/classify-file';
 import {runEnds} from '@/domain/templates/render-template';
 import type {ScannedFile} from '@/ipc/contracts';
+import {useSession} from '@/store/session-store';
+import {Button} from '@/ui/button';
 import {Checkbox} from '@/ui/checkbox';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/ui/tooltip';
+import {
+  PreviewRowContext,
+  type RowCellProps,
+} from '@/features/file-grid/grid-context';
+import {NameEditor} from '@/features/file-grid/name-editor';
 import type {RowStatus} from '@/features/file-grid/row-status';
 import {stepTitles} from '@/features/step-editor/step-titles';
-
-type RowCellProps = {row: PreviewRow; status: RowStatus};
-
-export const PreviewRowContext = createContext<RowCellProps | null>(null);
 
 export const gridFeatures = tableFeatures({
   rowSelectionFeature,
@@ -259,14 +259,33 @@ function ArrowCell({status}: RowCellProps) {
   );
 }
 
-function NewNameCell({row, status}: RowCellProps) {
-  const name =
-    row.proposal.kind === 'renamed' ? row.proposal.name : row.file.name;
+function NewNameCell({row, status, isEditing}: RowCellProps) {
+  if (isEditing) return <NameEditor row={row} />;
+  const isEdited = row.override !== null;
+  return (
+    <div className="flex min-w-0 items-center gap-1.5">
+      {isEdited && (
+        <PencilIcon
+          className="size-3 shrink-0 text-muted-foreground"
+          aria-label="Edited"
+        />
+      )}
+      <NewName row={row} status={status} />
+      {isEdited && <ResetNameButton path={row.file.path} />}
+    </div>
+  );
+}
+
+function NewName({row, status}: {row: PreviewRow; status: RowStatus}) {
+  const name = newName(row);
   const className = cn(
     'truncate',
     isQuiet(status) ? 'text-muted-foreground' : 'font-medium'
   );
-  if (!row.trace.some(entry => entry.step !== 'template')) {
+  if (
+    row.override === null &&
+    !row.trace.some(entry => entry.step !== 'template')
+  ) {
     return (
       <p className={className} title={name}>
         {name}
@@ -288,10 +307,30 @@ function NewNameCell({row, status}: RowCellProps) {
               text={entry.text}
             />
           ))}
+          {row.override !== null && (
+            <TraceLine label="Your edit" text={row.override} />
+          )}
           <TraceLine label="New name" text={name} />
         </div>
       </TooltipContent>
     </Tooltip>
+  );
+}
+
+function ResetNameButton({path}: {path: string}) {
+  const setNameOverride = useSession(state => state.setNameOverride);
+  return (
+    <Button
+      variant="ghost"
+      size="icon-xs"
+      tabIndex={-1}
+      aria-label="Reset to the steps' name"
+      title="Reset to the steps' name"
+      className="ml-auto shrink-0 opacity-0 group-hover/row:opacity-100 group-data-active/row:opacity-100"
+      onMouseDown={event => event.preventDefault()}
+      onClick={() => setNameOverride(path, null)}>
+      <RotateCcwIcon />
+    </Button>
   );
 }
 

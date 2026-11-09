@@ -1,6 +1,8 @@
-import {FilesIcon} from 'lucide-react';
+import {FilesIcon, RotateCcwIcon} from 'lucide-react';
 
+import {useSession} from '@/store/session-store';
 import type {Preview} from '@/store/use-preview';
+import {Button} from '@/ui/button';
 import {FileGrid} from '@/features/file-grid/file-grid';
 
 export function PreviewPane({preview}: {preview: Preview}) {
@@ -12,7 +14,9 @@ export function PreviewPane({preview}: {preview: Preview}) {
     readyCount,
     blockedCount,
     excludedCount,
+    editCount,
   } = preview;
+  const resetNameOverrides = useSession(state => state.resetNameOverrides);
 
   return (
     <main className="flex min-w-0 flex-1 flex-col bg-background">
@@ -23,18 +27,26 @@ export function PreviewPane({preview}: {preview: Preview}) {
           Preview
         </h1>
         {rows.length > 0 && (
-          <p
-            data-tauri-drag-region
-            className="text-xs text-muted-foreground tabular-nums">
-            {readyCount} to rename
-            {excludedCount > 0 && ` · ${excludedCount} excluded`}
-            {blockedCount > 0 && (
-              <span className="text-destructive">
-                {' '}
-                · {blockedCount} can't be renamed
-              </span>
+          <div className="flex items-center gap-3">
+            {editCount > 0 && (
+              <Button variant="ghost" size="xs" onClick={resetNameOverrides}>
+                <RotateCcwIcon />
+                Reset {editCount} {editCount === 1 ? 'edit' : 'edits'}
+              </Button>
             )}
-          </p>
+            <p
+              data-tauri-drag-region
+              className="text-xs text-muted-foreground tabular-nums">
+              {readyCount} to rename
+              {excludedCount > 0 && ` · ${excludedCount} excluded`}
+              {blockedCount > 0 && (
+                <span className="text-destructive">
+                  {' '}
+                  · {blockedCount} can't be renamed
+                </span>
+              )}
+            </p>
+          </div>
         )}
       </header>
       {rows.length === 0 ? (
