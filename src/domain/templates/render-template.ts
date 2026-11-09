@@ -5,6 +5,7 @@ import type {
   Template,
   TemplateNode,
 } from '@/domain/templates/template';
+import {applyLetterCase} from '@/domain/text/letter-case';
 import {collapseSpaces} from '@/domain/text/spaces';
 
 export type CounterIndexes = Record<CounterScope, number>;
@@ -148,17 +149,7 @@ export function runEnds(values: Array<number>): Array<number> {
 
 function applyCase(text: string, modifiers: Array<TagModifier>): string {
   const caseModifier = modifiers.find(modifier => modifier.kind === 'case');
-  switch (caseModifier?.style) {
-    case undefined:
-      return text;
-    case 'upper':
-      return text.toLocaleUpperCase('en-GB');
-    case 'lower':
-      return text.toLocaleLowerCase('en-GB');
-    case 'title':
-      return text.replace(
-        /\p{L}[\p{L}']*/gu,
-        word => word.charAt(0).toLocaleUpperCase('en-GB') + word.slice(1)
-      );
-  }
+  return caseModifier === undefined
+    ? text
+    : applyLetterCase(text, caseModifier.style);
 }

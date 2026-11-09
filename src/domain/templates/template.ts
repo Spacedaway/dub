@@ -1,6 +1,5 @@
 import type {TagName} from '@/domain/tags/tags';
-
-export type LetterCaseStyle = 'upper' | 'lower' | 'title';
+import type {LetterCaseStyle} from '@/domain/text/letter-case';
 
 export type CounterScope = 'folder' | 'batch';
 
