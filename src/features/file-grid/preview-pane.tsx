@@ -4,6 +4,7 @@ import {useSession} from '@/store/session-store';
 import type {Preview} from '@/store/use-preview';
 import {Button} from '@/ui/button';
 import {FileGrid} from '@/features/file-grid/file-grid';
+import {BatchBanner} from '@/features/history/batch-banner';
 
 export function PreviewPane({preview}: {preview: Preview}) {
   const {
@@ -49,6 +50,7 @@ export function PreviewPane({preview}: {preview: Preview}) {
           </div>
         )}
       </header>
+      <BatchBanner />
       {rows.length === 0 ? (
         <EmptyState />
       ) : (

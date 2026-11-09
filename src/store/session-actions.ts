@@ -118,10 +118,6 @@ export async function applyPlan(plan: Plan): Promise<void> {
     toast.success(
       `Renamed ${plural(new Set(plan.steps.map(step => step.rowId)).size, 'file')}.`
     );
-  } else {
-    toast.error(
-      `Stopped after ${plural(result.completedSteps, 'step')}: ${describeFailure(result.outcome.failure)}.`
-    );
   }
 }
 
