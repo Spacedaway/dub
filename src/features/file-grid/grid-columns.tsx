@@ -5,13 +5,18 @@ import {
   metaHelper,
   rowExpandingFeature,
   rowSelectionFeature,
+  rowSortingFeature,
   tableFeatures,
+  type Column,
   type Row,
   type Table,
 } from '@tanstack/react-table';
 import {cn} from 'cn';
 import {
+  ArrowDownIcon,
   ArrowRightIcon,
+  ArrowUpDownIcon,
+  ArrowUpIcon,
   CircleAlertIcon,
   CircleCheckIcon,
   CircleDashedIcon,
@@ -35,12 +40,14 @@ import {
   PreviewRowContext,
   type RowCellProps,
 } from '@/features/file-grid/grid-context';
+import type {SortColumn} from '@/features/file-grid/held-sort';
 import {NameEditor} from '@/features/file-grid/name-editor';
 import type {RowStatus} from '@/features/file-grid/row-status';
 import {stepTitles} from '@/features/step-editor/step-titles';
 
 export const gridFeatures = tableFeatures({
   rowSelectionFeature,
+  rowSortingFeature,
   rowExpandingFeature,
   expandedRowModel: createExpandedRowModel(),
   columnMeta: metaHelper<{width: string}>(),
@@ -65,15 +72,17 @@ export const gridColumns = column.columns([
     cell: ({row}) => <IncludeCheckbox row={row} />,
     meta: {width: '1rem'},
   }),
-  column.display({
-    id: 'status',
-    header: () => <span className="sr-only">Status</span>,
+  column.accessor(sortedOutsideTable, {
+    id: 'status' satisfies SortColumn,
+    header: ({column}) => (
+      <SortHeader column={column} label="Status" isLabelHidden />
+    ),
     cell: withPreviewRow(StatusCell),
     meta: {width: '1.25rem'},
   }),
-  column.display({
-    id: 'original',
-    header: 'Original',
+  column.accessor(sortedOutsideTable, {
+    id: 'original' satisfies SortColumn,
+    header: ({column}) => <SortHeader column={column} label="Original" />,
     cell: withPreviewRow(OriginalCell),
     meta: {width: 'minmax(0,1fr)'},
   }),
@@ -82,21 +91,21 @@ export const gridColumns = column.columns([
     cell: withPreviewRow(ArrowCell),
     meta: {width: '1rem'},
   }),
-  column.display({
-    id: 'newName',
-    header: 'New name',
+  column.accessor(sortedOutsideTable, {
+    id: 'newName' satisfies SortColumn,
+    header: ({column}) => <SortHeader column={column} label="New name" />,
     cell: withPreviewRow(NewNameCell),
     meta: {width: 'minmax(0,1fr)'},
   }),
-  column.display({
-    id: 'kind',
-    header: 'Kind',
+  column.accessor(sortedOutsideTable, {
+    id: 'kind' satisfies SortColumn,
+    header: ({column}) => <SortHeader column={column} label="Kind" />,
     cell: withPreviewRow(KindCell),
     meta: {width: '4.5rem'},
   }),
-  column.display({
-    id: 'folder',
-    header: 'Folder',
+  column.accessor(sortedOutsideTable, {
+    id: 'folder' satisfies SortColumn,
+    header: ({column}) => <SortHeader column={column} label="Folder" />,
     cell: withPreviewRow(FolderCell),
     meta: {width: 'minmax(0,12rem)'},
   }),
@@ -105,6 +114,48 @@ export const gridColumns = column.columns([
 export const gridTemplateColumns = gridColumns
   .map(definition => definition.meta?.width)
   .join(' ');
+
+function sortedOutsideTable(file: ScannedFile): string {
+  return file.path;
+}
+
+function SortHeader({
+  column,
+  label,
+  isLabelHidden = false,
+}: {
+  column: Column<typeof gridFeatures, ScannedFile, string>;
+  label: string;
+  isLabelHidden?: boolean;
+}) {
+  const sorted = column.getIsSorted();
+  return (
+    <button
+      type="button"
+      title={`Sort by ${label.toLowerCase()}`}
+      className={cn(
+        'inline-flex max-w-full items-center gap-1 hover:text-foreground',
+        sorted !== false && 'text-foreground'
+      )}
+      onClick={column.getToggleSortingHandler()}>
+      <span className={isLabelHidden ? 'sr-only' : 'truncate'}>{label}</span>
+      <SortIcon sorted={sorted} isLabelHidden={isLabelHidden} />
+    </button>
+  );
+}
+
+function SortIcon({
+  sorted,
+  isLabelHidden,
+}: {
+  sorted: false | 'asc' | 'desc';
+  isLabelHidden: boolean;
+}) {
+  if (sorted === 'asc') return <ArrowUpIcon className="size-3 shrink-0" />;
+  if (sorted === 'desc') return <ArrowDownIcon className="size-3 shrink-0" />;
+  if (!isLabelHidden) return null;
+  return <ArrowUpDownIcon className="size-3 shrink-0 opacity-50" />;
+}
 
 function withPreviewRow(Cell: (props: RowCellProps) => ReactNode) {
   return function PreviewRowCell() {

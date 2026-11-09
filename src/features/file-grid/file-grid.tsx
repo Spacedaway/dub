@@ -13,6 +13,7 @@ import {
   functionalUpdate,
   useTable,
   type RowSelectionState,
+  type SortingState,
   type Updater,
 } from '@tanstack/react-table';
 import {
@@ -41,6 +42,12 @@ import {
   PreviewRowContext,
   type GridActions,
 } from '@/features/file-grid/grid-context';
+import {
+  holdSort,
+  noHeldSort,
+  orderByHeldSort,
+  sortColumnOf,
+} from '@/features/file-grid/held-sort';
 import {rowStatus, type RowStatus} from '@/features/file-grid/row-status';
 
 const rowHeight = 34;
@@ -90,6 +97,33 @@ export function FileGrid({rows, flags, outcomes, livePlan}: FileGridProps) {
     };
   }, [flags, outcomes, livePlan]);
 
+  const scrollElement = useRef<HTMLDivElement>(null);
+  const [sorting, setSorting] = useState<SortingState>([]);
+  const [heldSort, setHeldSort] = useState(noHeldSort);
+  const sortColumn = sortColumnOf(sorting);
+  const canHoldSort =
+    sortColumn !== null &&
+    (sortColumn !== 'status' || livePlan.kind !== 'planning');
+  if (canHoldSort && heldSort.files !== mainFiles) {
+    setHeldSort(
+      holdSort(sortColumn, mainFiles, rowsByPath, statusOf, heldSort.keys)
+    );
+  }
+  const isDescending = sorting[0]?.desc ?? false;
+  const orderedFiles = useMemo(
+    () =>
+      sortColumn === null
+        ? mainFiles
+        : orderByHeldSort(mainFiles, heldSort.keys, isDescending),
+    [mainFiles, heldSort, sortColumn, isDescending]
+  );
+
+  function handleSortingChange(updater: Updater<SortingState>) {
+    setSorting(functionalUpdate(updater, sorting));
+    setHeldSort(noHeldSort);
+    scrollElement.current?.scrollTo({top: 0});
+  }
+
   const rowSelection: RowSelectionState = useMemo(
     () =>
       Object.fromEntries(
@@ -112,13 +146,17 @@ export function FileGrid({rows, flags, outcomes, livePlan}: FileGridProps) {
   const table = useTable({
     features: gridFeatures,
     columns: gridColumns,
-    data: mainFiles,
+    data: orderedFiles,
     getRowId: file => file.path,
     getSubRows: file => companionFiles.get(file.path),
     enableRowSelection: row => row.depth === 0,
     enableSubRowSelection: false,
-    state: {expanded: true, rowSelection},
+    manualSorting: true,
+    enableMultiSort: false,
+    sortDescFirst: false,
+    state: {expanded: true, rowSelection, sorting},
     onRowSelectionChange: handleRowSelectionChange,
+    onSortingChange: handleSortingChange,
   });
   const tableRows = table.getRowModel().rows;
 
@@ -137,7 +175,6 @@ export function FileGrid({rows, flags, outcomes, livePlan}: FileGridProps) {
   );
   const rowElementId = useId();
 
-  const scrollElement = useRef<HTMLDivElement>(null);
   const gridElement = useRef<HTMLTableElement>(null);
   const gridActions: GridActions = useMemo(
     () => ({
@@ -250,7 +287,10 @@ export function FileGrid({rows, flags, outcomes, livePlan}: FileGridProps) {
               .flatMap(group => group.headers)
               .map(header => (
                 // oxlint-disable-next-line jsx-a11y/control-has-associated-label -- the label comes from FlexRender, which the rule can't see.
-                <th key={header.id} className="truncate text-start font-medium">
+                <th
+                  key={header.id}
+                  aria-sort={ariaSort(header.column)}
+                  className="truncate text-start font-medium">
                   <table.FlexRender header={header} />
                 </th>
               ))}
@@ -388,4 +428,14 @@ function withIndexes(
   );
   if (missing.length === 0) return indexes;
   return [...indexes, ...missing].sort((left, right) => left - right);
+}
+
+function ariaSort(column: {
+  getCanSort: () => boolean;
+  getIsSorted: () => false | 'asc' | 'desc';
+}): 'ascending' | 'descending' | 'none' | undefined {
+  if (!column.getCanSort()) return undefined;
+  const sorted = column.getIsSorted();
+  if (sorted === false) return 'none';
+  return sorted === 'asc' ? 'ascending' : 'descending';
 }
