@@ -14,6 +14,7 @@ import type {ShowLookup} from '@/domain/lookups/group-status';
 import {lookupGroups} from '@/domain/lookups/lookup-groups';
 import {parseFileName} from '@/domain/parsing/parse-file-name';
 import type {ParsedName} from '@/domain/parsing/parsed-name';
+import {initialSteps, type Steps} from '@/domain/steps/step';
 import type {BatchKind, ScannedFile, VolumeInfo} from '@/ipc/contracts';
 import type {PlanResult} from '@/store/live-plan';
 
@@ -31,7 +32,7 @@ type SessionState = {
   files: Array<ScannedFile>;
   parsedNames: ReadonlyMap<string, ParsedName | null>;
   companions: ReadonlyMap<string, string>;
-  templateSource: string;
+  steps: Steps;
   activity: Activity;
   undoableBatchId: string | null;
   diskGeneration: number;
@@ -61,7 +62,7 @@ export const useSession = create<SessionState & SessionActions>()(
     files: [],
     parsedNames: new Map(),
     companions: new Map(),
-    templateSource: '',
+    steps: initialSteps,
     activity: {kind: 'idle'},
     undoableBatchId: null,
     diskGeneration: 0,
@@ -102,8 +103,9 @@ export const useSession = create<SessionState & SessionActions>()(
         ),
       });
     },
-    setTemplateSource(templateSource) {
-      set({templateSource});
+    setTemplateSource(source) {
+      const {steps} = get();
+      set({steps: {...steps, template: {...steps.template, source}}});
     },
     setActivity(activity) {
       set({activity});

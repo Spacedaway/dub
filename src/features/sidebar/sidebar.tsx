@@ -15,10 +15,15 @@ import {SectionHeading} from '@/features/sidebar/section-heading';
 import {TemplateField} from '@/features/step-editor/template-field';
 
 export function Sidebar({preview}: {preview: Preview}) {
-  const {nameSource, counterIgnoresEpisodes, lookups, readyPlan, readyCount} =
-    preview;
+  const {
+    compiledSteps,
+    counterIgnoresEpisodes,
+    lookups,
+    readyPlan,
+    readyCount,
+  } = preview;
   const files = useSession(state => state.files);
-  const templateSource = useSession(state => state.templateSource);
+  const templateSource = useSession(state => state.steps.template.source);
   const setTemplateSource = useSession(state => state.setTemplateSource);
   const activity = useSession(state => state.activity);
   const undoableBatchId = useSession(state => state.undoableBatchId);
@@ -74,7 +79,7 @@ export function Sidebar({preview}: {preview: Preview}) {
         <SectionHeading>Rename to</SectionHeading>
         <TemplateField
           source={templateSource}
-          nameSource={nameSource}
+          nameSource={compiledSteps.template}
           counterIgnoresEpisodes={counterIgnoresEpisodes}
           onChange={setTemplateSource}
         />

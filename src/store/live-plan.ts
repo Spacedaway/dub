@@ -1,8 +1,5 @@
-import {
-  buildPreview,
-  nameSourceFor,
-  proposedRenames,
-} from '@/domain/preview/build-preview';
+import {buildPreview, proposedRenames} from '@/domain/preview/build-preview';
+import {compileSteps} from '@/domain/steps/compile-steps';
 import {errorMessage} from '@/ipc/command-error';
 import * as commands from '@/ipc/commands';
 import type {Plan, ProposedRename} from '@/ipc/contracts';
@@ -47,7 +44,7 @@ export function followPlanning(): () => void {
     if (
       state.files === previous.files &&
       state.lookups.files === previous.lookups.files &&
-      state.templateSource === previous.templateSource &&
+      state.steps === previous.steps &&
       state.diskGeneration === previous.diskGeneration
     )
       return;
@@ -63,7 +60,7 @@ async function requestPlan(): Promise<void> {
     parsedNames,
     companions,
     lookups,
-    templateSource,
+    steps,
     diskGeneration,
     planResult,
   } = useSession.getState();
@@ -73,7 +70,7 @@ async function requestPlan(): Promise<void> {
       parsedNames,
       companions,
       lookups.files,
-      nameSourceFor(templateSource)
+      compileSteps(steps).pipeline
     )
   );
   const key = planKey(renames, diskGeneration);

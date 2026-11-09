@@ -3,7 +3,7 @@ import {describe, expect, it} from 'vitest';
 import {parseFileName} from '@/domain/parsing/parse-file-name';
 import type {ParsedName} from '@/domain/parsing/parsed-name';
 import {buildPreview} from '@/domain/preview/build-preview';
-import {parseTemplate} from '@/domain/templates/parse-template';
+import {compileSteps} from '@/domain/steps/compile-steps';
 import type {ScannedFile} from '@/ipc/contracts';
 
 function file(directory: string, name: string): ScannedFile {
@@ -37,7 +37,7 @@ function names(source: string, files: Array<ScannedFile>) {
     parsedNamesFor(files),
     new Map(),
     new Map(),
-    parseTemplate(source)
+    compileSteps({template: {source}}).pipeline
   ).map(row => row.proposal);
 }
 

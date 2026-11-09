@@ -3,11 +3,10 @@ import {useDeferredValue, useMemo} from 'react';
 import type {Lookups} from '@/domain/lookups/derive-lookups';
 import {
   buildPreview,
-  nameSourceFor,
   proposedRenames,
-  type NameSource,
   type PreviewRow,
 } from '@/domain/preview/build-preview';
+import {compileSteps, type CompiledSteps} from '@/domain/steps/compile-steps';
 import {
   counterIgnoresEpisodes,
   episodeFlags,
@@ -18,7 +17,7 @@ import {livePlanFor, type LivePlan} from '@/store/live-plan';
 import {useSession} from '@/store/session-store';
 
 export type Preview = {
-  nameSource: NameSource;
+  compiledSteps: CompiledSteps;
   lookups: Lookups;
   rows: Array<PreviewRow>;
   flags: ReadonlyMap<string, Array<EpisodeFlag>>;
@@ -35,15 +34,12 @@ export function usePreview(): Preview {
   const parsedNames = useSession(state => state.parsedNames);
   const companions = useSession(state => state.companions);
   const lookups = useSession(state => state.lookups);
-  const templateSource = useSession(state => state.templateSource);
+  const steps = useSession(state => state.steps);
   const diskGeneration = useSession(state => state.diskGeneration);
   const planResult = useSession(state => state.planResult);
 
-  const nameSource = useMemo(
-    () => nameSourceFor(templateSource),
-    [templateSource]
-  );
-  const deferredNameSource = useDeferredValue(nameSource);
+  const compiledSteps = useMemo(() => compileSteps(steps), [steps]);
+  const deferredPipeline = useDeferredValue(compiledSteps.pipeline);
   const rows = useMemo(
     () =>
       buildPreview(
@@ -51,19 +47,20 @@ export function usePreview(): Preview {
         parsedNames,
         companions,
         lookups.files,
-        deferredNameSource
+        deferredPipeline
       ),
-    [files, parsedNames, companions, lookups.files, deferredNameSource]
+    [files, parsedNames, companions, lookups.files, deferredPipeline]
   );
   const flags = useMemo(
     () => episodeFlags(files, parsedNames),
     [files, parsedNames]
   );
+  const template = compiledSteps.template;
   const ignoresEpisodes = useMemo(
     () =>
-      nameSource.kind === 'parsed' &&
-      counterIgnoresEpisodes(nameSource.template, parsedNames),
-    [nameSource, parsedNames]
+      template.kind === 'parsed' &&
+      counterIgnoresEpisodes(template.template, parsedNames),
+    [template, parsedNames]
   );
   const renames = useMemo(() => proposedRenames(rows), [rows]);
   const livePlan = useMemo(
@@ -74,7 +71,7 @@ export function usePreview(): Preview {
   const counts = useMemo(() => countOutcomes(outcomes), [outcomes]);
 
   return {
-    nameSource,
+    compiledSteps,
     lookups,
     rows,
     flags,

@@ -1,6 +1,6 @@
 import {useRef} from 'react';
 
-import type {NameSource} from '@/domain/preview/build-preview';
+import type {NameSource} from '@/domain/steps/compile-steps';
 import type {TemplateError} from '@/domain/templates/template';
 import {Button} from '@/ui/button';
 import {Input} from '@/ui/input';

@@ -4,16 +4,15 @@ import {
   sanitiseCompanionSuffix,
   sanitiseFileName,
 } from '@/domain/sanitising/sanitise-file-name';
+import type {StepPipeline} from '@/domain/steps/compile-steps';
 import {classifyFile, type FileKind} from '@/domain/suggestions/classify-file';
 import {defaultTemplates} from '@/domain/suggestions/default-templates';
 import {fileTagValues, parsedTagValues} from '@/domain/tags/file-tags';
 import type {TagName} from '@/domain/tags/tags';
-import {parseTemplate} from '@/domain/templates/parse-template';
 import {
   renderTemplate,
   type CounterIndexes,
 } from '@/domain/templates/render-template';
-import type {TemplateParseResult} from '@/domain/templates/template';
 import {collapseSpaces} from '@/domain/text/spaces';
 import type {ProposedRename, ScannedFile} from '@/ipc/contracts';
 
@@ -21,7 +20,7 @@ export type NameProposal =
   | {kind: 'unchanged'}
   | {kind: 'renamed'; name: string}
   | {kind: 'emptyName'}
-  | {kind: 'templateInvalid'};
+  | {kind: 'stepInvalid'};
 
 export type PreviewRow = {
   file: ScannedFile;
@@ -33,20 +32,12 @@ export type PreviewRow = {
   lookup: FileLookup | null;
 };
 
-export type NameSource = {kind: 'suggested'} | TemplateParseResult;
-
-export function nameSourceFor(templateSource: string): NameSource {
-  return templateSource.trim() === ''
-    ? {kind: 'suggested'}
-    : parseTemplate(templateSource);
-}
-
 export function buildPreview(
   files: Array<ScannedFile>,
   parsedNames: ReadonlyMap<string, ParsedName | null>,
   companions: ReadonlyMap<string, string>,
   lookups: ReadonlyMap<string, FileLookup>,
-  nameSource: NameSource
+  pipeline: StepPipeline
 ): Array<PreviewRow> {
   const mainFiles = files.filter(file => !companions.has(file.path));
   const mainRows = new Map(
@@ -56,7 +47,7 @@ export function buildPreview(
         file,
         parsedNames.get(file.path) ?? null,
         lookups.get(file.path) ?? null,
-        nameSource,
+        pipeline,
         counter
       ),
     ])
@@ -73,16 +64,16 @@ function mainRow(
   file: ScannedFile,
   parsed: ParsedName | null,
   lookup: FileLookup | null,
-  nameSource: NameSource,
+  pipeline: StepPipeline,
   counter: CounterIndexes
 ): PreviewRow {
   const kind = classifyFile(parsed);
-  if (nameSource.kind === 'invalid') {
+  if (pipeline.kind === 'invalid') {
     return {
       file,
       parsed,
       kind,
-      proposal: {kind: 'templateInvalid'},
+      proposal: {kind: 'stepInvalid'},
       missingTags: [],
       companionOf: null,
       lookup,
@@ -90,9 +81,9 @@ function mainRow(
   }
 
   const template =
-    nameSource.kind === 'suggested'
+    pipeline.start.kind === 'suggested'
       ? defaultTemplates[kind]
-      : nameSource.template;
+      : pipeline.start.template;
   const values = {
     ...fileTagValues(file),
     ...parsedTagValues(parsed),

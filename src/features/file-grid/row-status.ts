@@ -28,7 +28,7 @@ export function rowStatus(
   ];
   switch (row.proposal.kind) {
     case 'unchanged':
-    case 'templateInvalid':
+    case 'stepInvalid':
       return {kind: 'unchanged', warnings: notes};
     case 'emptyName':
       return {
