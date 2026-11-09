@@ -3,7 +3,7 @@ import {useRef} from 'react';
 import type {NameSource} from '@/domain/steps/compile-steps';
 import type {TemplateError} from '@/domain/templates/template';
 import {Button} from '@/ui/button';
-import {Input} from '@/ui/input';
+import {StepInput} from '@/features/step-editor/field-controls';
 
 const suggestedTags = [
   'Original',
@@ -48,17 +48,13 @@ export function TemplateField({
 
   return (
     <div className="flex flex-col gap-2">
-      <Input
+      <StepInput
         ref={input}
         value={source}
         onChange={event => onChange(event.target.value)}
         placeholder="Suggested name for each file"
-        spellCheck={false}
-        autoCorrect="off"
-        autoCapitalize="off"
         aria-invalid={nameSource.kind === 'invalid'}
         aria-label="Name template"
-        className="font-mono text-xs select-text placeholder:font-sans"
       />
       {nameSource.kind === 'invalid' && (
         <p className="text-xs text-destructive">

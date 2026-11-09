@@ -4,6 +4,7 @@ import {parseFileName} from '@/domain/parsing/parse-file-name';
 import type {ParsedName} from '@/domain/parsing/parsed-name';
 import {buildPreview} from '@/domain/preview/build-preview';
 import {compileSteps} from '@/domain/steps/compile-steps';
+import {initialSteps, newTextStep, type Steps} from '@/domain/steps/step';
 import type {ScannedFile} from '@/ipc/contracts';
 
 function file(directory: string, name: string): ScannedFile {
@@ -32,12 +33,16 @@ function parsedNamesFor(
 }
 
 function names(source: string, files: Array<ScannedFile>) {
+  return proposals({...initialSteps, template: {source, enabled: true}}, files);
+}
+
+function proposals(steps: Steps, files: Array<ScannedFile>) {
   return buildPreview(
     files,
     parsedNamesFor(files),
     new Map(),
     new Map(),
-    compileSteps({template: {source}}).pipeline
+    compileSteps(steps).pipeline
   ).map(row => row.proposal);
 }
 
@@ -56,6 +61,24 @@ describe('buildPreview', () => {
       {kind: 'unchanged'},
       {kind: 'unchanged'},
     ]);
+  });
+
+  it("doesn't rename for clean-up alone when the steps only change spacing", () => {
+    const files = [
+      file('/media', 'Show  Name .mkv'),
+      file('/media', 'Pokémon.mkv'),
+    ];
+    const doubleSpaces = {
+      ...newTextStep('replace', 'spaces'),
+      find: ' ',
+      replacement: '  ',
+    };
+    expect(
+      proposals(
+        {template: {source: '', enabled: false}, textSteps: [doubleSpaces]},
+        files
+      )
+    ).toEqual([{kind: 'unchanged'}, {kind: 'unchanged'}]);
   });
 
   it('treats names that differ only in Unicode form as unchanged', () => {

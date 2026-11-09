@@ -56,11 +56,13 @@ export function usePreview(): Preview {
     [files, parsedNames]
   );
   const template = compiledSteps.template;
+  const isTemplateEnabled = steps.template.enabled;
   const ignoresEpisodes = useMemo(
     () =>
+      isTemplateEnabled &&
       template.kind === 'parsed' &&
       counterIgnoresEpisodes(template.template, parsedNames),
-    [template, parsedNames]
+    [isTemplateEnabled, template, parsedNames]
   );
   const renames = useMemo(() => proposedRenames(rows), [rows]);
   const livePlan = useMemo(

@@ -12,7 +12,7 @@ import type {Preview} from '@/store/use-preview';
 import {Button} from '@/ui/button';
 import {ShowsSection} from '@/features/shows/shows-section';
 import {SectionHeading} from '@/features/sidebar/section-heading';
-import {TemplateField} from '@/features/step-editor/template-field';
+import {StepList} from '@/features/step-editor/step-list';
 
 export function Sidebar({preview}: {preview: Preview}) {
   const {
@@ -23,8 +23,6 @@ export function Sidebar({preview}: {preview: Preview}) {
     readyCount,
   } = preview;
   const files = useSession(state => state.files);
-  const templateSource = useSession(state => state.steps.template.source);
-  const setTemplateSource = useSession(state => state.setTemplateSource);
   const activity = useSession(state => state.activity);
   const undoableBatchId = useSession(state => state.undoableBatchId);
   const lookupsEnabled = useSession(state => state.lookupsEnabled);
@@ -36,56 +34,51 @@ export function Sidebar({preview}: {preview: Preview}) {
     <aside className="flex w-72 shrink-0 flex-col border-r border-sidebar-border bg-sidebar platform-macos:bg-transparent">
       <div data-tauri-drag-region className="h-12 shrink-0" />
 
-      <section className="flex flex-col gap-2 px-4 pb-5">
-        <SectionHeading>Files</SectionHeading>
-        <p className="text-body text-sidebar-foreground">
-          {files.length === 0
-            ? 'None yet. Drop files or folders anywhere.'
-            : `${files.length} ${files.length === 1 ? 'file' : 'files'} in ${folderCount} ${folderCount === 1 ? 'folder' : 'folders'}`}
-        </p>
-        <div className="flex gap-1.5">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={isBusy}
-            onClick={async () => addPaths(await pickFiles())}>
-            <FilePlusIcon /> Add files…
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={isBusy}
-            onClick={async () => addPaths(await pickFolders())}>
-            <FolderPlusIcon /> Add folder…
-          </Button>
-          {files.length > 0 && (
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <section className="flex flex-col gap-2 px-4 pb-5">
+          <SectionHeading>Files</SectionHeading>
+          <p className="text-body text-sidebar-foreground">
+            {files.length === 0
+              ? 'None yet. Drop files or folders anywhere.'
+              : `${files.length} ${files.length === 1 ? 'file' : 'files'} in ${folderCount} ${folderCount === 1 ? 'folder' : 'folders'}`}
+          </p>
+          <div className="flex gap-1.5">
             <Button
-              variant="ghost"
-              size="icon-sm"
+              variant="outline"
+              size="sm"
               disabled={isBusy}
-              onClick={clearFiles}
-              aria-label="Clear the list">
-              <XIcon />
+              onClick={async () => addPaths(await pickFiles())}>
+              <FilePlusIcon /> Add files…
             </Button>
-          )}
-        </div>
-      </section>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isBusy}
+              onClick={async () => addPaths(await pickFolders())}>
+              <FolderPlusIcon /> Add folder…
+            </Button>
+            {files.length > 0 && (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                disabled={isBusy}
+                onClick={clearFiles}
+                aria-label="Clear the list">
+                <XIcon />
+              </Button>
+            )}
+          </div>
+        </section>
 
-      {(lookups.groups.length > 0 || lookupsEnabled === false) && (
-        <ShowsSection lookups={lookups} />
-      )}
+        {(lookups.groups.length > 0 || lookupsEnabled === false) && (
+          <ShowsSection lookups={lookups} />
+        )}
 
-      <section className="flex flex-col gap-2 px-4">
-        <SectionHeading>Rename to</SectionHeading>
-        <TemplateField
-          source={templateSource}
-          nameSource={compiledSteps.template}
+        <StepList
+          compiledSteps={compiledSteps}
           counterIgnoresEpisodes={counterIgnoresEpisodes}
-          onChange={setTemplateSource}
         />
-      </section>
-
-      <div className="flex-1" />
+      </div>
 
       <footer className="flex flex-col gap-2 border-t border-sidebar-border p-4">
         {activity.kind === 'running' && (
@@ -100,11 +93,16 @@ export function Sidebar({preview}: {preview: Preview}) {
           disabled={
             isBusy ||
             lookups.pendingCount > 0 ||
+            compiledSteps.pipeline.kind === 'invalid' ||
             readyPlan === null ||
             readyCount === 0
           }
           onClick={() => readyPlan && applyPlan(readyPlan)}>
-          {renameLabel(readyCount, lookups.pendingCount)}
+          {renameLabel(
+            readyCount,
+            lookups.pendingCount,
+            compiledSteps.pipeline.kind === 'invalid'
+          )}
         </Button>
         <Button
           variant="ghost"
@@ -118,9 +116,14 @@ export function Sidebar({preview}: {preview: Preview}) {
   );
 }
 
-function renameLabel(readyCount: number, pendingShows: number): string {
+function renameLabel(
+  readyCount: number,
+  pendingShows: number,
+  hasInvalidStep: boolean
+): string {
   if (pendingShows > 0)
     return `Looking up ${pendingShows} ${pendingShows === 1 ? 'show' : 'shows'}…`;
+  if (hasInvalidStep) return 'Fix the step marked in red';
   if (readyCount === 0) return 'Nothing to rename';
   return `Rename ${readyCount} ${readyCount === 1 ? 'file' : 'files'}`;
 }

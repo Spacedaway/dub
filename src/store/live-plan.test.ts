@@ -115,6 +115,21 @@ describe('followPlanning', () => {
     ]);
   });
 
+  it('plans the names the text steps make', async () => {
+    await vi.advanceTimersByTimeAsync(planningDelayMs);
+    useSession.getState().addTextStep('replace');
+    const [step] = useSession.getState().steps.textSteps;
+    if (step?.kind !== 'replace') throw new Error('Expected a Replace step');
+    useSession
+      .getState()
+      .updateTextStep({...step, find: 'a', replacement: 'b'});
+    await vi.advanceTimersByTimeAsync(planningDelayMs);
+
+    expect(pendingPlans.map(({request}) => targetNames(request))).toEqual([
+      'b.mkv',
+    ]);
+  });
+
   it('plans companions with their video so the planner can block them together', async () => {
     useSession.getState().setFiles([file('a.mkv'), file('a.en.forced.srt')]);
     await editTemplate('b');

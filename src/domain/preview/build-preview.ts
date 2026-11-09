@@ -4,14 +4,16 @@ import {
   sanitiseCompanionSuffix,
   sanitiseFileName,
 } from '@/domain/sanitising/sanitise-file-name';
-import type {StepPipeline} from '@/domain/steps/compile-steps';
+import {applyTextStep} from '@/domain/steps/apply-text-step';
+import type {NameStart, StepPipeline} from '@/domain/steps/compile-steps';
 import {classifyFile, type FileKind} from '@/domain/suggestions/classify-file';
 import {defaultTemplates} from '@/domain/suggestions/default-templates';
 import {fileTagValues, parsedTagValues} from '@/domain/tags/file-tags';
-import type {TagName} from '@/domain/tags/tags';
+import type {TagName, TagValues} from '@/domain/tags/tags';
 import {
   renderTemplate,
   type CounterIndexes,
+  type RenderedTemplate,
 } from '@/domain/templates/render-template';
 import {collapseSpaces} from '@/domain/text/spaces';
 import type {ProposedRename, ScannedFile} from '@/ipc/contracts';
@@ -80,25 +82,41 @@ function mainRow(
     };
   }
 
-  const template =
-    pipeline.start.kind === 'suggested'
-      ? defaultTemplates[kind]
-      : pipeline.start.template;
   const values = {
     ...fileTagValues(file),
     ...parsedTagValues(parsed),
     ...(lookup?.kind === 'resolved' ? lookup.tags : {}),
   };
-  const rendered = renderTemplate(template, values, counter);
+  const start = renderStart(pipeline.start, file, kind, values, counter);
+  let text = start.text.normalize('NFC');
+  for (const step of pipeline.textSteps)
+    text = applyTextStep(step, text).normalize('NFC');
   return {
     file,
     parsed,
     kind,
-    proposal: propose(file, rendered.text),
-    missingTags: rendered.missingTags,
+    proposal: propose(file, text),
+    missingTags: start.missingTags,
     companionOf: null,
     lookup,
   };
+}
+
+function renderStart(
+  start: NameStart,
+  file: ScannedFile,
+  kind: FileKind,
+  values: TagValues,
+  counter: CounterIndexes
+): RenderedTemplate {
+  switch (start.kind) {
+    case 'original':
+      return {text: collapseSpaces(file.stem), missingTags: []};
+    case 'suggested':
+      return renderTemplate(defaultTemplates[kind], values, counter);
+    case 'template':
+      return renderTemplate(start.template, values, counter);
+  }
 }
 
 function companionRow(
@@ -138,12 +156,16 @@ function followVideo(
 }
 
 function propose(file: ScannedFile, stem: string): NameProposal {
-  if (stem.normalize('NFC') === collapseSpaces(file.stem).normalize('NFC'))
+  if (comparableStem(stem) === comparableStem(file.stem))
     return {kind: 'unchanged'};
   const name = sanitiseFileName(stem, file.extension);
   if (name === '') return {kind: 'emptyName'};
   if (name === file.name.normalize('NFC')) return {kind: 'unchanged'};
   return {kind: 'renamed', name};
+}
+
+function comparableStem(stem: string): string {
+  return collapseSpaces(stem.normalize('NFC'));
 }
 
 function withCounters(
