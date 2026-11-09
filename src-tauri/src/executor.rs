@@ -72,7 +72,7 @@ pub fn execute(
 
     let result = run_rename_steps(&mut connection, &batch_id, &steps, &progress);
     if result.is_err() {
-        let _ = journal::reconcile_batch(&mut connection, &batch_id);
+        let _ = journal::interrupt_batch(&mut connection, &batch_id);
     }
     result
 }
@@ -233,7 +233,7 @@ fn undo_with(
 
     let result = run_undo_steps(&mut connection, &undo_id, &steps, &units, &progress, rename);
     if result.is_err() {
-        let _ = journal::reconcile_batch(&mut connection, &undo_id);
+        let _ = journal::interrupt_batch(&mut connection, &undo_id);
     }
     result
 }
@@ -630,6 +630,19 @@ mod tests {
                 .status
         }
 
+        fn begin_without_running(&self, plan: &Plan) -> &'static str {
+            const BATCH_ID: &str = "interrupted";
+            let steps: Vec<JournalStep> = plan.steps.iter().map(JournalStep::from).collect();
+            let batch = NewBatch {
+                id: BATCH_ID,
+                kind: BatchKind::Rename,
+                undoes_batch_id: None,
+                plan_id: Some(&plan.plan_id),
+            };
+            journal::begin_batch(&mut self.journal.open().unwrap(), &batch, &steps).unwrap();
+            BATCH_ID
+        }
+
         fn step_statuses(&self, batch_id: &str) -> Vec<StepStatus> {
             journal::load_steps(&self.journal.open().unwrap(), batch_id)
                 .unwrap()
@@ -776,21 +789,29 @@ mod tests {
     fn a_started_rename_found_on_disk_can_be_undone() {
         let workspace = Workspace::new(&["a.txt"]);
         let plan = workspace.plan(&[("a.txt", "b.txt")]);
-        let steps: Vec<JournalStep> = plan.steps.iter().map(JournalStep::from).collect();
-        let batch = NewBatch {
-            id: "interrupted",
-            kind: BatchKind::Rename,
-            undoes_batch_id: None,
-            plan_id: Some(&plan.plan_id),
-        };
-        let mut connection = workspace.journal.open().unwrap();
-        journal::begin_batch(&mut connection, &batch, &steps).unwrap();
+        let batch_id = workspace.begin_without_running(&plan);
         fs::rename(workspace.path("a.txt"), workspace.path("b.txt")).unwrap();
 
-        journal::reconcile_batch(&mut connection, batch.id).unwrap();
-        assert_eq!(workspace.batch_status(batch.id), BatchStatus::Interrupted);
+        journal::recover(&workspace.journal).unwrap();
+        assert_eq!(workspace.batch_status(batch_id), BatchStatus::Interrupted);
+        assert_eq!(workspace.step_statuses(batch_id), vec![StepStatus::Done]);
 
-        undo(&workspace.gate, &workspace.journal, batch.id, |_| {}).unwrap();
+        undo(&workspace.gate, &workspace.journal, batch_id, |_| {}).unwrap();
+        assert_eq!(workspace.names(), vec!["a.txt"]);
+    }
+
+    #[test]
+    fn a_started_rename_that_did_not_happen_is_planned_again() {
+        let workspace = Workspace::new(&["a.txt"]);
+        let plan = workspace.plan(&[("a.txt", "b.txt")]);
+        let batch_id = workspace.begin_without_running(&plan);
+
+        journal::recover(&workspace.journal).unwrap();
+        assert_eq!(workspace.batch_status(batch_id), BatchStatus::Interrupted);
+        assert_eq!(workspace.step_statuses(batch_id), vec![StepStatus::Planned]);
+
+        let undone = undo(&workspace.gate, &workspace.journal, batch_id, |_| {});
+        assert!(matches!(undone, Err(CommandError::InvalidRequest(_))));
         assert_eq!(workspace.names(), vec!["a.txt"]);
     }
 

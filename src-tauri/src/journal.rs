@@ -469,14 +469,20 @@ pub fn recover(journal: &JournalPath) -> rusqlite::Result<()> {
         .collect::<rusqlite::Result<_>>()?;
 
     for batch_id in running {
-        reconcile_batch(&mut connection, &batch_id)?;
+        interrupt_batch(&mut connection, &batch_id)?;
     }
     Ok(())
 }
 
-pub fn reconcile_batch(connection: &mut Connection, batch_id: &str) -> rusqlite::Result<()> {
+pub fn interrupt_batch(connection: &mut Connection, batch_id: &str) -> rusqlite::Result<()> {
     let transaction = connection.transaction()?;
-    for recorded in load_steps(&transaction, batch_id)? {
+    settle_started_steps(&transaction, batch_id)?;
+    finish_batch(&transaction, batch_id, BatchStatus::Interrupted)?;
+    transaction.commit()
+}
+
+pub fn settle_started_steps(connection: &Connection, batch_id: &str) -> rusqlite::Result<()> {
+    for recorded in load_steps(connection, batch_id)? {
         if recorded.status != StepStatus::Started {
             continue;
         }
@@ -484,15 +490,12 @@ pub fn reconcile_batch(connection: &mut Connection, batch_id: &str) -> rusqlite:
         let from = Path::new(&recorded.step.from);
         let to = Path::new(&recorded.step.to);
         match (platform::path_present(from), platform::path_present(to)) {
-            (true, false) => {
-                set_step_status(&transaction, batch_id, position, StepStatus::Planned)?
-            }
-            (false, true) => set_step_done(&transaction, batch_id, position, Fingerprint::of(to))?,
+            (true, false) => set_step_status(connection, batch_id, position, StepStatus::Planned)?,
+            (false, true) => set_step_done(connection, batch_id, position, Fingerprint::of(to))?,
             (true, true) | (false, false) => {}
         }
     }
-    finish_batch(&transaction, batch_id, BatchStatus::Interrupted)?;
-    transaction.commit()
+    Ok(())
 }
 
 pub fn milliseconds_since_epoch(time: SystemTime) -> i64 {
