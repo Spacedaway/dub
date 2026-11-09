@@ -1,6 +1,19 @@
-import {memo, useMemo, useRef} from 'react';
+import {
+  memo,
+  useCallback,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type MouseEvent,
+} from 'react';
 import {FlexRender, useTable, type Row} from '@tanstack/react-table';
-import {useVirtualizer} from '@tanstack/react-virtual';
+import {
+  defaultRangeExtractor,
+  useVirtualizer,
+  type Range,
+} from '@tanstack/react-virtual';
 import {cn} from 'cn';
 
 import {companionsByVideo} from '@/domain/files/companions';
@@ -71,6 +84,19 @@ export function FileGrid({rows, flags, outcomes, livePlan}: FileGridProps) {
   });
   const tableRows = table.getRowModel().rows;
 
+  const [activeRowId, setActiveRowId] = useState<string | null>(null);
+  const rowIndexes = useMemo(
+    () => new Map(tableRows.map((row, index) => [row.id, index])),
+    [tableRows]
+  );
+  const activeIndex =
+    activeRowId === null ? -1 : (rowIndexes.get(activeRowId) ?? -1);
+  const rangeExtractor = useCallback(
+    (range: Range) => withIndex(defaultRangeExtractor(range), activeIndex),
+    [activeIndex]
+  );
+  const rowElementId = useId();
+
   const scrollElement = useRef<HTMLDivElement>(null);
   // oxlint-disable-next-line react/incompatible-library -- only affects React Compiler memoisation.
   const virtualiser = useVirtualizer({
@@ -81,18 +107,59 @@ export function FileGrid({rows, flags, outcomes, livePlan}: FileGridProps) {
     overscan: 12,
     scrollMargin: headerHeight,
     scrollPaddingStart: headerHeight,
+    rangeExtractor,
   });
+
+  function moveTo(index: number) {
+    const row = tableRows[index];
+    if (row === undefined) return;
+    setActiveRowId(row.id);
+    virtualiser.scrollToIndex(index, {align: 'auto'});
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLTableElement>) {
+    if (event.target !== event.currentTarget) return;
+    const visibleRows = Math.max(
+      1,
+      Math.floor(
+        ((scrollElement.current?.clientHeight ?? 0) - headerHeight) / rowHeight
+      ) - 1
+    );
+    const next = nextRowIndex(
+      event.key,
+      activeIndex,
+      tableRows.length,
+      visibleRows
+    );
+    if (next === null) return;
+    event.preventDefault();
+    moveTo(next);
+  }
+
+  function handleClick(event: MouseEvent<HTMLTableElement>) {
+    const rowId = rowIdAt(event.target);
+    if (rowId !== null) setActiveRowId(rowId);
+  }
 
   return (
     <div ref={scrollElement} className="min-h-0 flex-1 overflow-y-auto">
-      {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-element-to-interactive-role -- a table with role="grid" is the ARIA grid pattern. */}
-      <table role="grid" aria-rowcount={tableRows.length + 1} className="grid">
-        <thead className="sticky top-0 z-10 grid border-b bg-background">
+      <table
+        // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-to-interactive-role -- a table with role="grid" is the ARIA grid pattern.
+        role="grid"
+        tabIndex={0}
+        aria-rowcount={tableRows.length + 1}
+        aria-activedescendant={
+          activeIndex < 0 ? undefined : `${rowElementId}-${activeIndex}`
+        }
+        className="group/grid grid outline-none"
+        onKeyDown={handleKeyDown}
+        onClick={handleClick}>
+        <thead className="sticky top-0 z-10 grid bg-background">
           <tr
             aria-rowindex={1}
             className={cn(
               rowLayout,
-              'text-xs font-medium text-muted-foreground'
+              'border-b text-xs font-medium text-muted-foreground'
             )}
             style={{gridTemplateColumns, height: headerHeight}}>
             {table
@@ -117,6 +184,8 @@ export function FileGrid({rows, flags, outcomes, livePlan}: FileGridProps) {
               <GridRow
                 key={row.id}
                 row={row}
+                elementId={`${rowElementId}-${item.index}`}
+                isActive={item.index === activeIndex}
                 rowIndex={item.index + 2}
                 offset={item.start - headerHeight}
                 previewRow={previewRow}
@@ -132,6 +201,8 @@ export function FileGrid({rows, flags, outcomes, livePlan}: FileGridProps) {
 
 type GridRowProps = {
   row: Row<typeof gridFeatures, ScannedFile>;
+  elementId: string;
+  isActive: boolean;
   rowIndex: number;
   offset: number;
   previewRow: PreviewRow;
@@ -140,6 +211,8 @@ type GridRowProps = {
 
 const GridRow = memo(function GridRow({
   row,
+  elementId,
+  isActive,
   rowIndex,
   offset,
   previewRow,
@@ -147,10 +220,13 @@ const GridRow = memo(function GridRow({
 }: GridRowProps) {
   return (
     <tr
+      id={elementId}
+      data-row-id={row.id}
+      data-active={isActive || undefined}
       aria-rowindex={rowIndex}
       className={cn(
         rowLayout,
-        'absolute inset-x-0 top-0 border-b border-border/60 text-body'
+        'absolute inset-x-0 top-0 border-b border-border/60 text-body data-active:bg-primary/6 group-focus/grid:data-active:bg-primary/15'
       )}
       style={{
         gridTemplateColumns,
@@ -168,3 +244,40 @@ const GridRow = memo(function GridRow({
     </tr>
   );
 });
+
+function nextRowIndex(
+  key: string,
+  current: number,
+  count: number,
+  pageSize: number
+): number | null {
+  const last = count - 1;
+  if (last < 0) return null;
+  switch (key) {
+    case 'ArrowDown':
+      return current < 0 ? 0 : Math.min(current + 1, last);
+    case 'ArrowUp':
+      return current < 0 ? 0 : Math.max(current - 1, 0);
+    case 'PageDown':
+      return Math.min(Math.max(current, 0) + pageSize, last);
+    case 'PageUp':
+      return Math.max(current - pageSize, 0);
+    case 'Home':
+      return 0;
+    case 'End':
+      return last;
+    default:
+      return null;
+  }
+}
+
+function rowIdAt(target: EventTarget): string | null {
+  return target instanceof Element
+    ? (target.closest<HTMLElement>('[data-row-id]')?.dataset.rowId ?? null)
+    : null;
+}
+
+function withIndex(indexes: Array<number>, index: number): Array<number> {
+  if (index < 0 || indexes.includes(index)) return indexes;
+  return [...indexes, index].sort((left, right) => left - right);
+}
