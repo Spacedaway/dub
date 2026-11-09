@@ -8,7 +8,7 @@ export function applyLetterCase(text: string, style: LetterCaseStyle): string {
       return text.toLocaleLowerCase('en-GB');
     case 'title':
       return text.replace(
-        /\p{L}[\p{L}']*/gu,
+        /\p{L}[\p{L}\p{M}'’]*/gu,
         word => word.charAt(0).toLocaleUpperCase('en-GB') + word.slice(1)
       );
   }
