@@ -23,6 +23,15 @@ export function rowStatus(
   livePlan: LivePlan
 ): RowStatus {
   if (row.proposal.kind === 'excluded') return {kind: 'excluded'};
+  if (row.proposal.kind === 'renamed' && row.file.access !== 'writable') {
+    return {
+      kind: 'blocked',
+      reasons: [
+        describeProblem({kind: row.file.access}),
+        ...flags.map(describeFlag),
+      ],
+    };
+  }
   if (row.lookup?.kind === 'pending') return {kind: 'pending'};
   const notes = [
     ...(row.lookup?.notes.map(describeLookupNote) ?? []),

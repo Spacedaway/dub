@@ -10,6 +10,7 @@ import type {
   BatchProgress,
   BatchResult,
   Plan,
+  ScanResponse,
   ScannedFile,
 } from '@/ipc/contracts';
 import {rememberAppliedShows} from '@/store/lookups';
@@ -28,6 +29,7 @@ export async function addPaths(paths: Array<string>): Promise<void> {
   try {
     const response = await commands.scan({paths, folders: 'recursive'});
     useSession.getState().addVolumes(response.volumes);
+    warnAboutReadOnlyDrives(response);
     const companions = await companionsOfAddedVideos(paths, response.files);
     const current = useSession.getState().files;
     const added = new Map(
@@ -45,6 +47,19 @@ export async function addPaths(paths: Array<string>): Promise<void> {
     toast.error(`Couldn't read the files: ${errorMessage(error)}`);
   } finally {
     useSession.getState().setActivity({kind: 'idle'});
+  }
+}
+
+function warnAboutReadOnlyDrives({files, volumes}: ScanResponse): void {
+  const scannedVolumeIds = new Set(files.map(file => file.volumeId));
+  for (const volume of volumes) {
+    if (volume.access !== 'readOnly' || !scannedVolumeIds.has(volume.id))
+      continue;
+    toast.warning(
+      volume.fileSystem === 'ntfs'
+        ? `“${volume.label}” is an NTFS drive, which macOS can only read, so its files can't be renamed.`
+        : `“${volume.label}” is read-only, so its files can't be renamed.`
+    );
   }
 }
 
