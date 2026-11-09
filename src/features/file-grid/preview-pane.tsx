@@ -1,7 +1,7 @@
 import {FilesIcon} from 'lucide-react';
 
 import type {Preview} from '@/store/use-preview';
-import {FileList} from '@/features/file-grid/file-list';
+import {FileGrid} from '@/features/file-grid/file-grid';
 
 export function PreviewPane({preview}: {preview: Preview}) {
   const {rows, flags, outcomes, livePlan, readyCount, blockedCount} = preview;
@@ -31,7 +31,7 @@ export function PreviewPane({preview}: {preview: Preview}) {
       {rows.length === 0 ? (
         <EmptyState />
       ) : (
-        <FileList
+        <FileGrid
           rows={rows}
           flags={flags}
           outcomes={outcomes}

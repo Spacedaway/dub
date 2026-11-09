@@ -23,20 +23,25 @@ export function orderCompanionsAfterVideos(
   files: Array<ScannedFile>,
   companions: ReadonlyMap<string, string>
 ): Array<ScannedFile> {
-  const companionsByVideo = new Map<string, Array<ScannedFile>>();
+  const byVideo = companionsByVideo(files, companions);
+  return files.flatMap(file =>
+    companions.has(file.path) ? [] : [file, ...(byVideo.get(file.path) ?? [])]
+  );
+}
+
+export function companionsByVideo(
+  files: Array<ScannedFile>,
+  companions: ReadonlyMap<string, string>
+): ReadonlyMap<string, Array<ScannedFile>> {
+  const byVideo = new Map<string, Array<ScannedFile>>();
   for (const file of files) {
     const video = companions.get(file.path);
     if (video === undefined) continue;
-    companionsByVideo.set(video, [
-      ...(companionsByVideo.get(video) ?? []),
-      file,
-    ]);
+    const videoCompanions = byVideo.get(video);
+    if (videoCompanions === undefined) byVideo.set(video, [file]);
+    else videoCompanions.push(file);
   }
-  return files.flatMap(file =>
-    companions.has(file.path)
-      ? []
-      : [file, ...(companionsByVideo.get(file.path) ?? [])]
-  );
+  return byVideo;
 }
 
 function pairCompanions(

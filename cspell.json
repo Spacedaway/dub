@@ -46,6 +46,7 @@
     "libsqlite",
     "mntfromname",
     "mntonname",
+    "noninteractive",
     "RDONLY",
     "readnfo",
     "renamer",
