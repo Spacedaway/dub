@@ -8,7 +8,13 @@ import {
   type KeyboardEvent,
   type MouseEvent,
 } from 'react';
-import {FlexRender, useTable, type Row} from '@tanstack/react-table';
+import {
+  FlexRender,
+  functionalUpdate,
+  useTable,
+  type RowSelectionState,
+  type Updater,
+} from '@tanstack/react-table';
 import {
   defaultRangeExtractor,
   useVirtualizer,
@@ -19,7 +25,7 @@ import {cn} from 'cn';
 import {companionsByVideo} from '@/domain/files/companions';
 import type {PreviewRow} from '@/domain/preview/build-preview';
 import type {EpisodeFlag} from '@/domain/suggestions/episode-flags';
-import type {RowOutcome, ScannedFile} from '@/ipc/contracts';
+import type {RowOutcome} from '@/ipc/contracts';
 import type {LivePlan} from '@/store/live-plan';
 import {useSession} from '@/store/session-store';
 import {
@@ -27,6 +33,8 @@ import {
   gridFeatures,
   gridTemplateColumns,
   PreviewRowContext,
+  toggleIncluded,
+  type GridRowModel,
 } from '@/features/file-grid/grid-columns';
 import {rowStatus, type RowStatus} from '@/features/file-grid/row-status';
 
@@ -45,6 +53,8 @@ type FileGridProps = {
 export function FileGrid({rows, flags, outcomes, livePlan}: FileGridProps) {
   const files = useSession(state => state.files);
   const companions = useSession(state => state.companions);
+  const excluded = useSession(state => state.rowEdits.excluded);
+  const setExcluded = useSession(state => state.setExcluded);
   const mainFiles = useMemo(
     () => files.filter(file => !companions.has(file.path)),
     [files, companions]
@@ -74,13 +84,35 @@ export function FileGrid({rows, flags, outcomes, livePlan}: FileGridProps) {
     };
   }, [flags, outcomes, livePlan]);
 
+  const rowSelection: RowSelectionState = useMemo(
+    () =>
+      Object.fromEntries(
+        mainFiles
+          .filter(file => !excluded.has(file.path))
+          .map(file => [file.path, true as const])
+      ),
+    [mainFiles, excluded]
+  );
+
+  function handleRowSelectionChange(updater: Updater<RowSelectionState>) {
+    const included = functionalUpdate(updater, rowSelection);
+    setExcluded(
+      new Set(
+        mainFiles.filter(file => !included[file.path]).map(file => file.path)
+      )
+    );
+  }
+
   const table = useTable({
     features: gridFeatures,
     columns: gridColumns,
     data: mainFiles,
     getRowId: file => file.path,
     getSubRows: file => companionFiles.get(file.path),
-    state: {expanded: true},
+    enableRowSelection: row => row.depth === 0,
+    enableSubRowSelection: false,
+    state: {expanded: true, rowSelection},
+    onRowSelectionChange: handleRowSelectionChange,
   });
   const tableRows = table.getRowModel().rows;
 
@@ -119,6 +151,12 @@ export function FileGrid({rows, flags, outcomes, livePlan}: FileGridProps) {
 
   function handleKeyDown(event: KeyboardEvent<HTMLTableElement>) {
     if (event.target !== event.currentTarget) return;
+    if (event.key === ' ') {
+      event.preventDefault();
+      const row = tableRows[activeIndex];
+      if (row !== undefined) toggleIncluded(row, event.shiftKey);
+      return;
+    }
     const visibleRows = Math.max(
       1,
       Math.floor(
@@ -139,6 +177,7 @@ export function FileGrid({rows, flags, outcomes, livePlan}: FileGridProps) {
   function handleClick(event: MouseEvent<HTMLTableElement>) {
     const rowId = rowIdAt(event.target);
     if (rowId !== null) setActiveRowId(rowId);
+    event.currentTarget.focus({preventScroll: true});
   }
 
   return (
@@ -200,7 +239,7 @@ export function FileGrid({rows, flags, outcomes, livePlan}: FileGridProps) {
 }
 
 type GridRowProps = {
-  row: Row<typeof gridFeatures, ScannedFile>;
+  row: GridRowModel;
   elementId: string;
   isActive: boolean;
   rowIndex: number;

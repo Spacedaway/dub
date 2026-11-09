@@ -9,7 +9,10 @@ import {
   createExpandedRowModel,
   metaHelper,
   rowExpandingFeature,
+  rowSelectionFeature,
   tableFeatures,
+  type Row,
+  type Table,
 } from '@tanstack/react-table';
 import {cn} from 'cn';
 import {
@@ -17,6 +20,7 @@ import {
   CircleAlertIcon,
   CircleCheckIcon,
   CircleDashedIcon,
+  CircleMinusIcon,
   CornerDownRightIcon,
   TriangleAlertIcon,
 } from 'lucide-react';
@@ -26,6 +30,7 @@ import type {PreviewRow} from '@/domain/preview/build-preview';
 import type {FileKind} from '@/domain/suggestions/classify-file';
 import {runEnds} from '@/domain/templates/render-template';
 import type {ScannedFile} from '@/ipc/contracts';
+import {Checkbox} from '@/ui/checkbox';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/ui/tooltip';
 import type {RowStatus} from '@/features/file-grid/row-status';
 import {stepTitles} from '@/features/step-editor/step-titles';
@@ -35,6 +40,7 @@ type RowCellProps = {row: PreviewRow; status: RowStatus};
 export const PreviewRowContext = createContext<RowCellProps | null>(null);
 
 export const gridFeatures = tableFeatures({
+  rowSelectionFeature,
   rowExpandingFeature,
   expandedRowModel: createExpandedRowModel(),
   columnMeta: metaHelper<{width: string}>(),
@@ -48,9 +54,17 @@ const kindLabels: Record<FileKind, string | null> = {
   generic: null,
 };
 
+export type GridRowModel = Row<typeof gridFeatures, ScannedFile>;
+
 const column = createColumnHelper<typeof gridFeatures, ScannedFile>();
 
 export const gridColumns = column.columns([
+  column.display({
+    id: 'include',
+    header: ({table}) => <IncludeAllCheckbox table={table} />,
+    cell: ({row}) => <IncludeCheckbox row={row} />,
+    meta: {width: '1rem'},
+  }),
   column.display({
     id: 'status',
     header: () => <span className="sr-only">Status</span>,
@@ -99,8 +113,61 @@ function withPreviewRow(Cell: (props: RowCellProps) => ReactNode) {
   };
 }
 
+export function toggleIncluded(row: GridRowModel, shiftKey: boolean): void {
+  const target = row.depth > 0 ? row.getParentRow() : row;
+  if (target === undefined) return;
+  target.getToggleSelectedHandler()({
+    target: {checked: !target.getIsSelected()},
+    shiftKey,
+  });
+}
+
+function IncludeAllCheckbox({
+  table,
+}: {
+  table: Table<typeof gridFeatures, ScannedFile>;
+}) {
+  const isAllIncluded = table.getIsAllRowsSelected();
+  return (
+    <Checkbox
+      checked={isAllIncluded}
+      indeterminate={table.getIsSomeRowsSelected() && !isAllIncluded}
+      tabIndex={-1}
+      aria-label="Include every file"
+      onMouseDown={event => event.preventDefault()}
+      onCheckedChange={checked =>
+        table.toggleAllRowsSelected(checked, {deselectAll: true})
+      }
+    />
+  );
+}
+
+function IncludeCheckbox({row}: {row: GridRowModel}) {
+  if (row.depth > 0) return null;
+  return (
+    <Checkbox
+      checked={row.getIsSelected()}
+      tabIndex={-1}
+      aria-label="Include in the rename"
+      onMouseDown={event => event.preventDefault()}
+      onClick={event => toggleIncluded(row, event.shiftKey)}
+    />
+  );
+}
+
+function isQuiet(status: RowStatus): boolean {
+  return status.kind === 'unchanged' || status.kind === 'excluded';
+}
+
 function StatusCell({status}: RowCellProps) {
   switch (status.kind) {
+    case 'excluded':
+      return (
+        <CircleMinusIcon
+          className="size-3.5 text-muted-foreground"
+          aria-label="Excluded"
+        />
+      );
     case 'unchanged':
       return status.warnings.length === 0 ? null : (
         <ReasonsTooltip reasons={status.warnings}>
@@ -137,7 +204,7 @@ function StatusCell({status}: RowCellProps) {
   }
 }
 
-function OriginalCell({row}: RowCellProps) {
+function OriginalCell({row, status}: RowCellProps) {
   return (
     <div className="flex min-w-0 items-center gap-1.5">
       {row.companionOf !== null && (
@@ -147,7 +214,12 @@ function OriginalCell({row}: RowCellProps) {
         />
       )}
       <div className="min-w-0">
-        <p className="truncate" title={row.file.name}>
+        <p
+          className={cn(
+            'truncate',
+            status.kind === 'excluded' && 'text-muted-foreground'
+          )}
+          title={row.file.name}>
           {row.file.name}
         </p>
         <DetectedSummary parsed={row.parsed} />
@@ -181,7 +253,7 @@ function ArrowCell({status}: RowCellProps) {
     <ArrowRightIcon
       className={cn(
         'size-3.5 text-muted-foreground',
-        status.kind === 'unchanged' && 'opacity-30'
+        isQuiet(status) && 'opacity-30'
       )}
     />
   );
@@ -192,7 +264,7 @@ function NewNameCell({row, status}: RowCellProps) {
     row.proposal.kind === 'renamed' ? row.proposal.name : row.file.name;
   const className = cn(
     'truncate',
-    status.kind === 'unchanged' ? 'text-muted-foreground' : 'font-medium'
+    isQuiet(status) ? 'text-muted-foreground' : 'font-medium'
   );
   if (!row.trace.some(entry => entry.step !== 'template')) {
     return (

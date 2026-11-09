@@ -4,7 +4,15 @@ import type {Preview} from '@/store/use-preview';
 import {FileGrid} from '@/features/file-grid/file-grid';
 
 export function PreviewPane({preview}: {preview: Preview}) {
-  const {rows, flags, outcomes, livePlan, readyCount, blockedCount} = preview;
+  const {
+    rows,
+    flags,
+    outcomes,
+    livePlan,
+    readyCount,
+    blockedCount,
+    excludedCount,
+  } = preview;
 
   return (
     <main className="flex min-w-0 flex-1 flex-col bg-background">
@@ -19,6 +27,7 @@ export function PreviewPane({preview}: {preview: Preview}) {
             data-tauri-drag-region
             className="text-xs text-muted-foreground tabular-nums">
             {readyCount} to rename
+            {excludedCount > 0 && ` · ${excludedCount} excluded`}
             {blockedCount > 0 && (
               <span className="text-destructive">
                 {' '}

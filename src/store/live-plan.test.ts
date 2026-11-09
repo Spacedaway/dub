@@ -150,6 +150,20 @@ describe('followPlanning', () => {
     ]);
   });
 
+  it('plans again without an excluded video or its companion', async () => {
+    useSession
+      .getState()
+      .setFiles([file('a.mkv'), file('a.en.srt'), file('b.mkv')]);
+    await editTemplate('<Original> new');
+    useSession.getState().setExcluded(new Set(['/media/a.mkv']));
+    await vi.advanceTimersByTimeAsync(planningDelayMs);
+
+    expect(pendingPlans.map(({request}) => targetNames(request))).toEqual([
+      'a new.mkv,a new.en.srt,b new.mkv',
+      'b new.mkv',
+    ]);
+  });
+
   it('plans once the names stop changing', async () => {
     useSession.getState().setTemplateSource('one');
     await vi.advanceTimersByTimeAsync(planningDelayMs - 1);

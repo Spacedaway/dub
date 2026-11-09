@@ -2,7 +2,7 @@ import {describe, expect, it} from 'vitest';
 
 import {parseFileName} from '@/domain/parsing/parse-file-name';
 import type {ParsedName} from '@/domain/parsing/parsed-name';
-import {buildPreview} from '@/domain/preview/build-preview';
+import {buildPreview, noRowEdits} from '@/domain/preview/build-preview';
 import {compileSteps} from '@/domain/steps/compile-steps';
 import {initialSteps, newTextStep, type Steps} from '@/domain/steps/step';
 import type {ScannedFile} from '@/ipc/contracts';
@@ -42,7 +42,8 @@ function proposals(steps: Steps, files: Array<ScannedFile>) {
     parsedNamesFor(files),
     new Map(),
     new Map(),
-    compileSteps(steps).pipeline
+    compileSteps(steps).pipeline,
+    noRowEdits
   ).map(row => row.proposal);
 }
 

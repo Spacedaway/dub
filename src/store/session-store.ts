@@ -14,6 +14,7 @@ import type {ShowLookup} from '@/domain/lookups/group-status';
 import {lookupGroups} from '@/domain/lookups/lookup-groups';
 import {parseFileName} from '@/domain/parsing/parse-file-name';
 import type {ParsedName} from '@/domain/parsing/parsed-name';
+import {noRowEdits, type RowEdits} from '@/domain/preview/build-preview';
 import {
   initialSteps,
   newTextStep,
@@ -40,6 +41,7 @@ type SessionState = {
   parsedNames: ReadonlyMap<string, ParsedName | null>;
   companions: ReadonlyMap<string, string>;
   steps: Steps;
+  rowEdits: RowEdits;
   activity: Activity;
   undoableBatchId: string | null;
   diskGeneration: number;
@@ -59,6 +61,7 @@ type SessionActions = {
   updateTextStep: (step: TextStep) => void;
   deleteTextStep: (id: string) => void;
   moveTextStep: (id: string, offset: -1 | 1) => void;
+  setExcluded: (excluded: ReadonlySet<string>) => void;
   setActivity: (activity: Activity) => void;
   setUndoableBatchId: (batchId: string | null) => void;
   markDiskChanged: () => void;
@@ -91,6 +94,7 @@ export const useSession = create<SessionState & SessionActions>()(
     parsedNames: new Map(),
     companions: new Map(),
     steps: initialSteps,
+    rowEdits: noRowEdits,
     activity: {kind: 'idle'},
     undoableBatchId: null,
     diskGeneration: 0,
@@ -118,10 +122,16 @@ export const useSession = create<SessionState & SessionActions>()(
         [...get().showLookups].filter(([key]) => groupKeys.has(key))
       );
       const orderedFiles = orderCompanionsAfterVideos(sorted, companions);
+      const paths = new Set(sorted.map(file => file.path));
       set({
         files: orderedFiles,
         parsedNames,
         companions,
+        rowEdits: {
+          excluded: new Set(
+            [...get().rowEdits.excluded].filter(path => paths.has(path))
+          ),
+        },
         showLookups,
         lookups: deriveLookups(
           orderedFiles,
@@ -173,6 +183,9 @@ export const useSession = create<SessionState & SessionActions>()(
       textSteps[index] = displaced;
       textSteps[index + offset] = moved;
       set(withTextSteps(steps, textSteps));
+    },
+    setExcluded(excluded) {
+      set({rowEdits: {...get().rowEdits, excluded}});
     },
     setActivity(activity) {
       set({activity});

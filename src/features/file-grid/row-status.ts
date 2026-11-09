@@ -13,7 +13,8 @@ export type RowStatus =
   | {kind: 'unchanged'; warnings: Array<string>}
   | {kind: 'pending'}
   | {kind: 'ready'; warnings: Array<string>}
-  | {kind: 'blocked'; reasons: Array<string>};
+  | {kind: 'blocked'; reasons: Array<string>}
+  | {kind: 'excluded'};
 
 export function rowStatus(
   row: PreviewRow,
@@ -21,6 +22,7 @@ export function rowStatus(
   outcomes: ReadonlyMap<string, RowOutcome>,
   livePlan: LivePlan
 ): RowStatus {
+  if (row.proposal.kind === 'excluded') return {kind: 'excluded'};
   if (row.lookup?.kind === 'pending') return {kind: 'pending'};
   const notes = [
     ...(row.lookup?.notes.map(describeLookupNote) ?? []),

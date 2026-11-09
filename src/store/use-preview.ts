@@ -27,6 +27,7 @@ export type Preview = {
   readyPlan: Plan | null;
   readyCount: number;
   blockedCount: number;
+  excludedCount: number;
 };
 
 export function usePreview(): Preview {
@@ -35,6 +36,7 @@ export function usePreview(): Preview {
   const companions = useSession(state => state.companions);
   const lookups = useSession(state => state.lookups);
   const steps = useSession(state => state.steps);
+  const rowEdits = useSession(state => state.rowEdits);
   const diskGeneration = useSession(state => state.diskGeneration);
   const planResult = useSession(state => state.planResult);
 
@@ -47,9 +49,10 @@ export function usePreview(): Preview {
         parsedNames,
         companions,
         lookups.files,
-        deferredPipeline
+        deferredPipeline,
+        rowEdits
       ),
-    [files, parsedNames, companions, lookups.files, deferredPipeline]
+    [files, parsedNames, companions, lookups.files, deferredPipeline, rowEdits]
   );
   const flags = useMemo(
     () => episodeFlags(files, parsedNames),
@@ -71,6 +74,10 @@ export function usePreview(): Preview {
   );
   const outcomes = useMemo(() => rowOutcomes(livePlan), [livePlan]);
   const counts = useMemo(() => countOutcomes(outcomes), [outcomes]);
+  const excludedCount = useMemo(
+    () => rows.filter(row => row.proposal.kind === 'excluded').length,
+    [rows]
+  );
 
   return {
     compiledSteps,
@@ -82,6 +89,7 @@ export function usePreview(): Preview {
     outcomes,
     readyPlan: livePlan.kind === 'planned' ? livePlan.plan : null,
     ...counts,
+    excludedCount,
   };
 }
 

@@ -45,6 +45,7 @@ export function followPlanning(): () => void {
       state.files === previous.files &&
       state.lookups.files === previous.lookups.files &&
       state.steps === previous.steps &&
+      state.rowEdits === previous.rowEdits &&
       state.diskGeneration === previous.diskGeneration
     )
       return;
@@ -61,6 +62,7 @@ async function requestPlan(): Promise<void> {
     companions,
     lookups,
     steps,
+    rowEdits,
     diskGeneration,
     planResult,
   } = useSession.getState();
@@ -70,7 +72,8 @@ async function requestPlan(): Promise<void> {
       parsedNames,
       companions,
       lookups.files,
-      compileSteps(steps).pipeline
+      compileSteps(steps).pipeline,
+      rowEdits
     )
   );
   const key = planKey(renames, diskGeneration);

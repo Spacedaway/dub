@@ -23,7 +23,8 @@ export type NameProposal =
   | {kind: 'unchanged'}
   | {kind: 'renamed'; name: string}
   | {kind: 'emptyName'}
-  | {kind: 'stepInvalid'};
+  | {kind: 'stepInvalid'}
+  | {kind: 'excluded'};
 
 export type TraceEntry = {step: StepKind; number: number; text: string};
 
@@ -38,16 +39,24 @@ export type PreviewRow = {
   lookup: FileLookup | null;
 };
 
+export type RowEdits = {excluded: ReadonlySet<string>};
+
+export const noRowEdits: RowEdits = {excluded: new Set()};
+
 export function buildPreview(
   files: Array<ScannedFile>,
   parsedNames: ReadonlyMap<string, ParsedName | null>,
   companions: ReadonlyMap<string, string>,
   lookups: ReadonlyMap<string, FileLookup>,
-  pipeline: StepPipeline
+  pipeline: StepPipeline,
+  rowEdits: RowEdits
 ): Array<PreviewRow> {
   const mainFiles = files.filter(file => !companions.has(file.path));
+  const includedFiles = mainFiles.filter(
+    file => !rowEdits.excluded.has(file.path)
+  );
   const mainRows = new Map(
-    withCounters(mainFiles).map(({file, counter}) => [
+    withCounters(includedFiles).map(({file, counter}) => [
       file.path,
       mainRow(
         file,
@@ -58,6 +67,17 @@ export function buildPreview(
       ),
     ])
   );
+  for (const file of mainFiles) {
+    if (!mainRows.has(file.path))
+      mainRows.set(
+        file.path,
+        excludedRow(
+          file,
+          parsedNames.get(file.path) ?? null,
+          lookups.get(file.path) ?? null
+        )
+      );
+  }
 
   return files.map(
     file =>
@@ -114,6 +134,23 @@ function mainRow(
   };
 }
 
+function excludedRow(
+  file: ScannedFile,
+  parsed: ParsedName | null,
+  lookup: FileLookup | null
+): PreviewRow {
+  return {
+    file,
+    parsed,
+    kind: classifyFile(parsed),
+    proposal: {kind: 'excluded'},
+    missingTags: [],
+    trace: [],
+    companionOf: null,
+    lookup,
+  };
+}
+
 function renderStart(
   start: NameStart,
   file: ScannedFile,
@@ -155,6 +192,7 @@ function followVideo(
   video: ScannedFile,
   videoProposal: NameProposal
 ): NameProposal {
+  if (videoProposal.kind === 'excluded') return {kind: 'excluded'};
   if (videoProposal.kind !== 'renamed') return {kind: 'unchanged'};
   const newStem = videoProposal.name.slice(
     0,
