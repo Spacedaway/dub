@@ -9,7 +9,7 @@ import type {
   PlanRequest,
   ScanRequest,
   ScanResponse,
-  UndoRequest,
+  BatchRequest,
   VolumeInfo,
 } from '@/ipc/contracts';
 
@@ -33,10 +33,17 @@ export function execute(
 }
 
 export function undo(
-  request: UndoRequest,
+  request: BatchRequest,
   onProgress: (progress: BatchProgress) => void
 ): Promise<BatchResult> {
   return invoke('undo', {request, onProgress: progressChannel(onProgress)});
+}
+
+export function resume(
+  request: BatchRequest,
+  onProgress: (progress: BatchProgress) => void
+): Promise<BatchResult> {
+  return invoke('resume', {request, onProgress: progressChannel(onProgress)});
 }
 
 export function history(limit: number): Promise<Array<JournalEntry>> {

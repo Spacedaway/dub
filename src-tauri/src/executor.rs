@@ -60,7 +60,7 @@ pub fn execute(
     }
 
     let batch_id = Uuid::now_v7().to_string();
-    let steps: Vec<JournalStep> = plan.steps.iter().map(JournalStep::from).collect();
+    let steps = with_source_fingerprints(&plan);
     let batch = NewBatch {
         id: &batch_id,
         kind: BatchKind::Rename,
@@ -80,6 +80,24 @@ pub fn execute(
         let _ = journal::interrupt_batch(&mut connection, &batch_id, &drives);
     }
     result
+}
+
+fn with_source_fingerprints(plan: &Plan) -> Vec<JournalStep> {
+    let mut parked: HashMap<&str, Option<Fingerprint>> = HashMap::new();
+    plan.steps
+        .iter()
+        .map(|plan_step| {
+            let mut step = JournalStep::from(plan_step);
+            step.fingerprint = match step.role {
+                StepRole::FromTemporary => parked.get(plan_step.row_id.as_str()).copied().flatten(),
+                StepRole::Direct | StepRole::ToTemporary => Fingerprint::of(Path::new(&step.from)),
+            };
+            if step.role == StepRole::ToTemporary {
+                parked.insert(&plan_step.row_id, step.fingerprint);
+            }
+            step
+        })
+        .collect()
 }
 
 fn plan_volumes(plan: &Plan) -> Result<Vec<BatchVolume>, CommandError> {
@@ -179,9 +197,150 @@ fn run_rename_steps(
     })
 }
 
-struct UndoStep {
-    step: JournalStep,
-    expected: Option<Fingerprint>,
+pub fn resume(
+    gate: &BatchGate,
+    journal: &JournalPath,
+    batch_id: &str,
+    progress: impl Fn(BatchProgress),
+) -> Result<BatchResult, CommandError> {
+    let _ticket = gate.enter()?;
+    let mut connection = journal.open()?;
+
+    let batch = journal::load_batch(&connection, batch_id)?
+        .ok_or_else(|| CommandError::BatchNotFound(batch_id.to_string()))?;
+    let stopped_part_way = matches!(
+        batch.status,
+        BatchStatus::Stopped | BatchStatus::Interrupted
+    );
+    if batch.kind != BatchKind::Rename || !stopped_part_way {
+        return Err(CommandError::InvalidRequest(
+            "only a rename that stopped part-way can be resumed".to_string(),
+        ));
+    }
+
+    let volumes = journal::load_batch_volumes(&connection, batch_id)?;
+    let mut drives = Drives::find(&volumes)?;
+    journal::settle_batch_and_its_undo_batches(&mut connection, batch_id, &drives)?;
+    let recorded = journal::load_steps(&connection, batch_id)?;
+    refuse_unless_it_can_resume(&recorded)?;
+    requeue_renames_that_never_reached_the_disk(&connection, batch_id, &recorded, &drives)?;
+
+    let steps: Vec<JournalStep> = pending_steps(&journal::load_steps(&connection, batch_id)?)?
+        .into_iter()
+        .map(|step| JournalStep {
+            from: drives.translate(&step.volume_id, &step.from),
+            to: drives.translate(&step.volume_id, &step.to),
+            ..step
+        })
+        .collect();
+    for step in &steps {
+        revalidate_step(step.position, &step.from, &step.to)?;
+    }
+    if let Some(reason) = group_blocker(&steps, &mut drives) {
+        return Err(CommandError::ResumeBlocked(
+            match reason {
+                SkipReason::FileChanged => "a file waiting to be renamed has changed",
+                SkipReason::FileMissing => "a file waiting to be renamed is no longer there",
+                SkipReason::OriginalNameTaken => "another file now has one of the new names",
+            }
+            .to_string(),
+        ));
+    }
+
+    journal::restart_batch(&mut connection, batch_id, steps[0].position)?;
+    progress(BatchProgress::Started {
+        batch_id: batch_id.to_string(),
+        total_steps: steps.len() as u32,
+    });
+    let result = run_rename_steps(&mut connection, batch_id, &steps, &progress);
+    if result.is_err() {
+        let _ = journal::interrupt_batch(&mut connection, batch_id, &drives);
+    }
+    result
+}
+
+fn requeue_renames_that_never_reached_the_disk(
+    connection: &Connection,
+    batch_id: &str,
+    recorded: &[RecordedStep],
+    drives: &Drives,
+) -> Result<(), CommandError> {
+    for (index, recorded_step) in recorded.iter().enumerate().rev() {
+        if recorded_step.status != StepStatus::Done {
+            continue;
+        }
+        let step = &recorded_step.step;
+        let Some(fingerprint) = step.fingerprint else {
+            break;
+        };
+        let fingerprint_at =
+            |path: &str| Fingerprint::of(Path::new(&drives.translate(&step.volume_id, path)));
+        let parking = (step.role == StepRole::FromTemporary)
+            .then(|| {
+                recorded[..index].iter().rev().find(|earlier| {
+                    earlier.step.role == StepRole::ToTemporary && earlier.step.row_id == step.row_id
+                })
+            })
+            .flatten();
+        let still_before_this_step = fingerprint_at(&step.from) == Some(fingerprint)
+            || parking
+                .is_some_and(|parking| fingerprint_at(&parking.step.from) == Some(fingerprint));
+        let target_holds_it = fingerprint_at(&step.to) == Some(fingerprint);
+        if !still_before_this_step || target_holds_it {
+            break;
+        }
+        journal::set_step_status(connection, batch_id, step.position, StepStatus::Planned)?;
+    }
+    Ok(())
+}
+
+fn cannot_resume(reason: &str) -> CommandError {
+    CommandError::InvalidRequest(format!("this batch can't be resumed: {reason}"))
+}
+
+fn refuse_unless_it_can_resume(recorded: &[RecordedStep]) -> Result<(), CommandError> {
+    let any = |status: StepStatus| {
+        recorded
+            .iter()
+            .any(|recorded_step| recorded_step.status == status)
+    };
+    if any(StepStatus::Undone) {
+        return Err(cannot_resume("part of it has been undone"));
+    }
+    if any(StepStatus::Started) {
+        return Err(cannot_resume(
+            "it's unclear whether one of its renames happened",
+        ));
+    }
+    Ok(())
+}
+
+fn pending_steps(recorded: &[RecordedStep]) -> Result<Vec<JournalStep>, CommandError> {
+    let is_pending = |recorded_step: &RecordedStep| {
+        matches!(
+            recorded_step.status,
+            StepStatus::Planned | StepStatus::Failed
+        )
+    };
+    let Some(first_pending) = recorded.iter().position(is_pending) else {
+        return Err(cannot_resume("nothing is left to rename"));
+    };
+    let pending = &recorded[first_pending..];
+    if !pending.iter().all(is_pending) {
+        return Err(cannot_resume(
+            "its finished and unfinished renames are out of order",
+        ));
+    }
+    if pending
+        .iter()
+        .any(|recorded_step| recorded_step.step.fingerprint.is_none())
+    {
+        return Err(cannot_resume("it was made by an older version of Dub"));
+    }
+    Ok(pending
+        .iter()
+        .map(|recorded_step| recorded_step.step.clone())
+        .collect())
 }
 
 pub fn undo(
@@ -227,24 +386,22 @@ fn undo_with(
     journal::settle_batch_and_its_undo_batches(&mut connection, batch_id, &drives)?;
 
     let recorded = journal::load_steps(&connection, batch_id)?;
-    let mut steps: Vec<UndoStep> = Vec::new();
+    let mut steps: Vec<JournalStep> = Vec::new();
     let mut units: Vec<Range<usize>> = Vec::new();
     for unit in undo_units(&recorded) {
         let start = steps.len();
         for index in unit {
             let original = &recorded[index].step;
-            steps.push(UndoStep {
-                step: JournalStep {
-                    position: steps.len() as u32 + 1,
-                    row_id: original.row_id.clone(),
-                    group_id: original.group_id.clone(),
-                    role: inverse(original.role),
-                    volume_id: original.volume_id.clone(),
-                    from: drives.translate(&original.volume_id, &original.to),
-                    to: drives.translate(&original.volume_id, &original.from),
-                    undoes_position: Some(original.position),
-                },
-                expected: recorded[index].fingerprint,
+            steps.push(JournalStep {
+                position: steps.len() as u32 + 1,
+                row_id: original.row_id.clone(),
+                group_id: original.group_id.clone(),
+                role: inverse(original.role),
+                volume_id: original.volume_id.clone(),
+                from: drives.translate(&original.volume_id, &original.to),
+                to: drives.translate(&original.volume_id, &original.from),
+                undoes_position: Some(original.position),
+                fingerprint: original.fingerprint,
             });
         }
         units.push(start..steps.len());
@@ -256,10 +413,6 @@ fn undo_with(
     }
 
     let undo_id = Uuid::now_v7().to_string();
-    let journal_steps: Vec<JournalStep> = steps
-        .iter()
-        .map(|undo_step| undo_step.step.clone())
-        .collect();
     let current_volumes = drives.current_volumes(&recorded_volumes);
     let batch = NewBatch {
         id: &undo_id,
@@ -268,7 +421,7 @@ fn undo_with(
         plan_id: None,
         volumes: &current_volumes,
     };
-    journal::begin_batch(&mut connection, &batch, &journal_steps)?;
+    journal::begin_batch(&mut connection, &batch, &steps)?;
     progress(BatchProgress::Started {
         batch_id: undo_id.clone(),
         total_steps: steps.len() as u32,
@@ -293,7 +446,7 @@ fn undo_with(
 fn run_undo_steps(
     connection: &mut Connection,
     undo_id: &str,
-    steps: &[UndoStep],
+    steps: &[JournalStep],
     units: &[Range<usize>],
     drives: &mut Drives,
     progress: &impl Fn(BatchProgress),
@@ -303,12 +456,12 @@ fn run_undo_steps(
     let mut skipped = Vec::new();
     let mut touched_paths = Vec::new();
     let mut completed_steps = 0u32;
-    let next_position = |index: usize| steps.get(index + 1).map(|next| next.step.position);
+    let next_position = |index: usize| steps.get(index + 1).map(|next| next.position);
 
     for group in units.iter().cloned() {
         if let Some(reason) = group_blocker(&steps[group.clone()], drives) {
             for index in group {
-                let step = &steps[index].step;
+                let step = &steps[index];
                 journal::record_step(
                     connection,
                     undo_id,
@@ -327,7 +480,7 @@ fn run_undo_steps(
 
         let mut moved: Vec<usize> = Vec::new();
         for index in group.clone() {
-            let step = &steps[index].step;
+            let step = &steps[index];
             match rename(Path::new(&step.from), Path::new(&step.to)) {
                 Ok(()) => {
                     let fingerprint = Fingerprint::of(Path::new(&step.to));
@@ -369,7 +522,7 @@ fn run_undo_steps(
         }
 
         for index in moved {
-            let step = &steps[index].step;
+            let step = &steps[index];
             touched_paths.push(step.to.clone());
             completed_steps += 1;
             progress(BatchProgress::StepDone {
@@ -394,13 +547,13 @@ fn run_undo_steps(
 fn roll_back(
     connection: &mut Connection,
     undo_id: &str,
-    steps: &[UndoStep],
+    steps: &[JournalStep],
     moved: &[usize],
     rename: &impl Fn(&Path, &Path) -> Result<(), RenameFailure>,
 ) -> Result<Vec<String>, CommandError> {
     let mut stranded = Vec::new();
     for &index in moved.iter().rev() {
-        let step = &steps[index].step;
+        let step = &steps[index];
         if rename(Path::new(&step.to), Path::new(&step.from)).is_ok() {
             journal::record_step(
                 connection,
@@ -519,29 +672,27 @@ impl UnionFind {
     }
 }
 
-fn group_blocker(group: &[UndoStep], drives: &mut Drives) -> Option<SkipReason> {
+fn group_blocker(group: &[JournalStep], drives: &mut Drives) -> Option<SkipReason> {
     let mut vacated_in_group: HashSet<String> = HashSet::new();
     let mut created_in_group: HashSet<String> = HashSet::new();
 
-    for undo_step in group {
-        if !drives.holds(&undo_step.step.volume_id, &undo_step.step.from) {
+    for step in group {
+        if !drives.holds(&step.volume_id, &step.from) {
             return Some(SkipReason::FileMissing);
         }
-        let from_key = names::collision_key(&undo_step.step.from);
-        let to_key = names::collision_key(&undo_step.step.to);
+        let from_key = names::collision_key(&step.from);
+        let to_key = names::collision_key(&step.to);
 
         if !created_in_group.contains(&from_key) {
-            match Fingerprint::of(Path::new(&undo_step.step.from)) {
+            match Fingerprint::of(Path::new(&step.from)) {
                 None => return Some(SkipReason::FileMissing),
-                Some(current) if Some(current) != undo_step.expected => {
+                Some(current) if Some(current) != step.fingerprint => {
                     return Some(SkipReason::FileChanged);
                 }
                 Some(_) => {}
             }
         }
-        if !vacated_in_group.contains(&to_key)
-            && platform::path_present(Path::new(&undo_step.step.to))
-        {
+        if !vacated_in_group.contains(&to_key) && platform::path_present(Path::new(&step.to)) {
             return Some(SkipReason::OriginalNameTaken);
         }
 
@@ -559,24 +710,27 @@ fn revalidate_steps(plan: &Plan) -> Result<(), CommandError> {
                 "steps are out of order".to_string(),
             ));
         }
-        let from = Path::new(&step.from);
-        let to = Path::new(&step.to);
-        if from.parent() != to.parent() {
-            return Err(CommandError::InvalidRequest(format!(
-                "step {} leaves its folder",
-                step.position
-            )));
-        }
-        let name = to
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or_default();
-        if !names::validate_name(name).is_empty() {
-            return Err(CommandError::InvalidRequest(format!(
-                "step {} has an invalid name",
-                step.position
-            )));
-        }
+        revalidate_step(step.position, &step.from, &step.to)?;
+    }
+    Ok(())
+}
+
+fn revalidate_step(position: u32, from: &str, to: &str) -> Result<(), CommandError> {
+    let from = Path::new(from);
+    let to = Path::new(to);
+    if from.parent() != to.parent() {
+        return Err(CommandError::InvalidRequest(format!(
+            "step {position} leaves its folder"
+        )));
+    }
+    let name = to
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default();
+    if !names::validate_name(name).is_empty() {
+        return Err(CommandError::InvalidRequest(format!(
+            "step {position} has an invalid name"
+        )));
     }
     Ok(())
 }
@@ -688,7 +842,7 @@ mod tests {
 
         fn begin_without_running(&self, plan: &Plan) -> &'static str {
             const BATCH_ID: &str = "interrupted";
-            let steps: Vec<JournalStep> = plan.steps.iter().map(JournalStep::from).collect();
+            let steps = with_source_fingerprints(plan);
             let volumes = plan_volumes(plan).unwrap();
             let batch = NewBatch {
                 id: BATCH_ID,
@@ -1077,6 +1231,173 @@ mod tests {
         let result = execute(&workspace.gate, &workspace.journal, plan, |_| {});
         assert!(matches!(result, Err(CommandError::InvalidRequest(_))));
         assert_eq!(workspace.names(), vec!["a.txt"]);
+    }
+
+    fn stop_before_the_second_rename(workspace: &Workspace) -> BatchResult {
+        let plan = workspace.plan(&[("a.txt", "x.txt"), ("b.txt", "y.txt")]);
+        fs::write(workspace.path("y.txt"), "in the way").unwrap();
+        let stopped = execute(&workspace.gate, &workspace.journal, plan, |_| {}).unwrap();
+        assert!(matches!(stopped.outcome, BatchOutcome::Stopped { .. }));
+        fs::remove_file(workspace.path("y.txt")).unwrap();
+        stopped
+    }
+
+    #[test]
+    fn a_stopped_batch_resumes_from_the_failed_step() {
+        let workspace = Workspace::new(&["a.txt", "b.txt"]);
+        let stopped = stop_before_the_second_rename(&workspace);
+
+        let resumed = resume(
+            &workspace.gate,
+            &workspace.journal,
+            &stopped.batch_id,
+            |_| {},
+        )
+        .unwrap();
+        assert_eq!(resumed.outcome, BatchOutcome::Completed);
+        assert_eq!(workspace.names(), vec!["x.txt", "y.txt"]);
+        assert_eq!(workspace.contents("y.txt").as_deref(), Some("b.txt"));
+        assert_eq!(
+            workspace.batch_status(&stopped.batch_id),
+            BatchStatus::Completed
+        );
+
+        undo(
+            &workspace.gate,
+            &workspace.journal,
+            &stopped.batch_id,
+            |_| {},
+        )
+        .unwrap();
+        assert_eq!(workspace.names(), vec!["a.txt", "b.txt"]);
+    }
+
+    #[test]
+    fn an_interrupted_batch_resumes() {
+        let workspace = Workspace::new(&["a.txt", "b.txt"]);
+        let plan = workspace.plan(&[("a.txt", "x.txt"), ("b.txt", "y.txt")]);
+        let batch_id = workspace.begin_without_running(&plan);
+        fs::rename(workspace.path("a.txt"), workspace.path("x.txt")).unwrap();
+        journal::recover(&workspace.journal).unwrap();
+        assert_eq!(
+            workspace.step_statuses(batch_id),
+            vec![StepStatus::Done, StepStatus::Planned]
+        );
+
+        let resumed = resume(&workspace.gate, &workspace.journal, batch_id, |_| {}).unwrap();
+        assert_eq!(resumed.outcome, BatchOutcome::Completed);
+        assert_eq!(workspace.names(), vec!["x.txt", "y.txt"]);
+    }
+
+    #[test]
+    fn resume_refuses_when_a_waiting_file_changed() {
+        let workspace = Workspace::new(&["a.txt", "b.txt"]);
+        let stopped = stop_before_the_second_rename(&workspace);
+        workspace.change("b.txt");
+
+        let refused = resume(
+            &workspace.gate,
+            &workspace.journal,
+            &stopped.batch_id,
+            |_| {},
+        );
+        assert!(matches!(refused, Err(CommandError::ResumeBlocked(_))));
+        assert_eq!(workspace.names(), vec!["b.txt", "x.txt"]);
+    }
+
+    #[test]
+    fn resume_finishes_a_swap_left_on_its_temporary_name() {
+        let workspace = Workspace::new(&["a.txt", "b.txt"]);
+        let plan = workspace.plan(&[("a.txt", "b.txt"), ("b.txt", "a.txt")]);
+        let temporary = plan.steps[0].to.clone();
+        let batch_id = workspace.begin_without_running(&plan);
+        fs::rename(workspace.path("a.txt"), &temporary).unwrap();
+        journal::recover(&workspace.journal).unwrap();
+
+        let resumed = resume(&workspace.gate, &workspace.journal, batch_id, |_| {}).unwrap();
+        assert_eq!(resumed.outcome, BatchOutcome::Completed);
+        assert_eq!(workspace.names(), vec!["a.txt", "b.txt"]);
+        assert_eq!(workspace.contents("a.txt").as_deref(), Some("b.txt"));
+        assert_eq!(workspace.contents("b.txt").as_deref(), Some("a.txt"));
+    }
+
+    #[test]
+    fn resume_retries_renames_that_never_reached_the_disk() {
+        let workspace = Workspace::new(&["a.txt", "b.txt"]);
+        let plan = workspace.plan(&[("a.txt", "x.txt"), ("b.txt", "y.txt")]);
+        let batch_id = workspace.begin_without_running(&plan);
+        let mut connection = workspace.journal.open().unwrap();
+        let fingerprint = Fingerprint::of(Path::new(&workspace.path("a.txt")));
+        journal::record_step(
+            &mut connection,
+            batch_id,
+            1,
+            StepOutcome::Done(fingerprint),
+            Some(2),
+        )
+        .unwrap();
+        journal::record_step(
+            &mut connection,
+            batch_id,
+            2,
+            StepOutcome::Failed(&RenameFailure::SourceMissing),
+            None,
+        )
+        .unwrap();
+        journal::finish_batch(&connection, batch_id, BatchStatus::Stopped).unwrap();
+
+        let resumed = resume(&workspace.gate, &workspace.journal, batch_id, |_| {}).unwrap();
+        assert_eq!(resumed.completed_steps, 2);
+        assert_eq!(workspace.names(), vec!["x.txt", "y.txt"]);
+    }
+
+    #[test]
+    fn resume_retries_a_swap_that_never_reached_the_disk() {
+        let workspace = Workspace::new(&["a.txt", "bb.txt", "c.txt"]);
+        let plan = workspace.plan(&[("a.txt", "bb.txt"), ("bb.txt", "a.txt"), ("c.txt", "d.txt")]);
+        let batch_id = workspace.begin_without_running(&plan);
+        fs::rename(workspace.path("c.txt"), workspace.path("d.txt")).unwrap();
+        let mut connection = workspace.journal.open().unwrap();
+        for position in 1..=4 {
+            let next_position = (position < 4).then_some(position + 1);
+            journal::record_step(
+                &mut connection,
+                batch_id,
+                position,
+                StepOutcome::Done(None),
+                next_position,
+            )
+            .unwrap();
+        }
+        journal::finish_batch(&connection, batch_id, BatchStatus::Interrupted).unwrap();
+
+        let resumed = resume(&workspace.gate, &workspace.journal, batch_id, |_| {}).unwrap();
+        assert_eq!(resumed.completed_steps, 3);
+        assert_eq!(workspace.names(), vec!["a.txt", "bb.txt", "d.txt"]);
+        assert_eq!(workspace.contents("a.txt").as_deref(), Some("bb.txt"));
+        assert_eq!(workspace.contents("bb.txt").as_deref(), Some("a.txt"));
+    }
+
+    #[test]
+    fn a_partly_undone_batch_cannot_be_resumed() {
+        let workspace = Workspace::new(&["a.txt", "b.txt"]);
+        let stopped = stop_before_the_second_rename(&workspace);
+        undo(
+            &workspace.gate,
+            &workspace.journal,
+            &stopped.batch_id,
+            |_| {},
+        )
+        .unwrap();
+
+        let refused = resume(
+            &workspace.gate,
+            &workspace.journal,
+            &stopped.batch_id,
+            |_| {},
+        );
+        assert!(matches!(refused, Err(CommandError::InvalidRequest(_))));
+        assert_eq!(workspace.names(), vec!["a.txt", "b.txt"]);
     }
 
     #[test]

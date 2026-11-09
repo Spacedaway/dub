@@ -17,6 +17,8 @@ pub enum CommandError {
     DriveNotConnected(String),
     #[error("two connected drives have the same ID as “{0}”. Eject the copy and try again")]
     DriveMountedTwice(String),
+    #[error("{0}")]
+    ResumeBlocked(String),
     #[error("internal error: {0}")]
     Internal(String),
 }
@@ -31,6 +33,7 @@ impl CommandError {
             Self::InvalidRequest(_) => "invalidRequest",
             Self::DriveNotConnected(_) => "driveNotConnected",
             Self::DriveMountedTwice(_) => "driveMountedTwice",
+            Self::ResumeBlocked(_) => "resumeBlocked",
             Self::Internal(_) => "internal",
         }
     }

@@ -4,8 +4,8 @@ use tauri::State;
 use tauri::ipc::Channel;
 
 use crate::contracts::{
-    BatchProgress, BatchResult, ExecuteRequest, HistoryRequest, JournalEntry, Plan, PlanRequest,
-    ScanRequest, ScanResponse, UndoRequest, VolumeInfo, VolumeInfoRequest,
+    BatchProgress, BatchRequest, BatchResult, ExecuteRequest, HistoryRequest, JournalEntry, Plan,
+    PlanRequest, ScanRequest, ScanResponse, VolumeInfo, VolumeInfoRequest,
 };
 use crate::error::CommandError;
 use crate::executor::{self, BatchGate};
@@ -58,13 +58,30 @@ pub async fn execute(
 pub async fn undo(
     gate: State<'_, BatchGate>,
     journal: State<'_, JournalPath>,
-    request: UndoRequest,
+    request: BatchRequest,
     on_progress: Channel<BatchProgress>,
 ) -> Result<BatchResult, CommandError> {
     let gate = gate.inner().clone();
     let journal = journal.inner().clone();
     run_blocking(move || {
         executor::undo(&gate, &journal, &request.batch_id, |event| {
+            let _ = on_progress.send(event);
+        })
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn resume(
+    gate: State<'_, BatchGate>,
+    journal: State<'_, JournalPath>,
+    request: BatchRequest,
+    on_progress: Channel<BatchProgress>,
+) -> Result<BatchResult, CommandError> {
+    let gate = gate.inner().clone();
+    let journal = journal.inner().clone();
+    run_blocking(move || {
+        executor::resume(&gate, &journal, &request.batch_id, |event| {
             let _ = on_progress.send(event);
         })
     })

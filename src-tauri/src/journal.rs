@@ -161,6 +161,7 @@ pub struct JournalStep {
     pub from: String,
     pub to: String,
     pub undoes_position: Option<u32>,
+    pub fingerprint: Option<Fingerprint>,
 }
 
 impl From<&PlanStep> for JournalStep {
@@ -174,6 +175,7 @@ impl From<&PlanStep> for JournalStep {
             from: step.from.clone(),
             to: step.to.clone(),
             undoes_position: None,
+            fingerprint: None,
         }
     }
 }
@@ -182,7 +184,6 @@ impl From<&PlanStep> for JournalStep {
 pub struct RecordedStep {
     pub step: JournalStep,
     pub status: StepStatus,
-    pub fingerprint: Option<Fingerprint>,
 }
 
 #[derive(Debug, Clone)]
@@ -250,8 +251,8 @@ pub fn begin_batch(
     {
         let mut insert = transaction.prepare(
             "INSERT INTO steps (batch_id, position, row_id, group_id, role, volume_id, from_path, to_path,
-                                undoes_position, status)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                                undoes_position, size, modified_ms, status)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
         )?;
         for step in steps {
             let status = if step.position == 1 {
@@ -269,6 +270,8 @@ pub fn begin_batch(
                 step.from,
                 step.to,
                 step.undoes_position,
+                step.fingerprint.map(|fingerprint| fingerprint.size as i64),
+                step.fingerprint.map(|fingerprint| fingerprint.modified_ms),
                 status.as_text(),
             ])?;
         }
@@ -334,7 +337,7 @@ fn set_step_done(
     fingerprint: Option<Fingerprint>,
 ) -> rusqlite::Result<()> {
     connection.execute(
-        "UPDATE steps SET status = 'done', size = ?3, modified_ms = ?4
+        "UPDATE steps SET status = 'done', size = COALESCE(?3, size), modified_ms = COALESCE(?4, modified_ms)
          WHERE batch_id = ?1 AND position = ?2",
         params![
             batch_id,
@@ -436,15 +439,15 @@ pub fn load_steps(connection: &Connection, batch_id: &str) -> rusqlite::Result<V
                 from: row.get(5)?,
                 to: row.get(6)?,
                 undoes_position: row.get(10)?,
+                fingerprint: size
+                    .zip(modified_ms)
+                    .map(|(size, modified_ms)| Fingerprint {
+                        size: size as u64,
+                        modified_ms,
+                    }),
             },
             status: StepStatus::from_text(&status)
                 .ok_or_else(|| invalid_text("status", &status))?,
-            fingerprint: size
-                .zip(modified_ms)
-                .map(|(size, modified_ms)| Fingerprint {
-                    size: size as u64,
-                    modified_ms,
-                }),
         })
     })?;
     rows.collect()
@@ -515,6 +518,24 @@ pub fn interrupt_batch(
     let transaction = connection.transaction()?;
     settle_started_steps(&transaction, batch_id, drives)?;
     finish_batch(&transaction, batch_id, BatchStatus::Interrupted)?;
+    transaction.commit()
+}
+
+pub fn restart_batch(
+    connection: &mut Connection,
+    batch_id: &str,
+    first_position: u32,
+) -> rusqlite::Result<()> {
+    let transaction = connection.transaction()?;
+    transaction.execute(
+        "UPDATE batches SET status = 'running', finished_at = NULL WHERE id = ?1",
+        params![batch_id],
+    )?;
+    transaction.execute(
+        "UPDATE steps SET status = 'planned', detail = NULL WHERE batch_id = ?1 AND status = 'failed'",
+        params![batch_id],
+    )?;
+    set_step_status(&transaction, batch_id, first_position, StepStatus::Started)?;
     transaction.commit()
 }
 

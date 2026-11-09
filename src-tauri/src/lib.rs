@@ -40,6 +40,7 @@ pub fn run() {
             commands::plan,
             commands::execute,
             commands::undo,
+            commands::resume,
             commands::history,
         ])
         .run(tauri::generate_context!())

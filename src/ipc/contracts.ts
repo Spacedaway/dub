@@ -108,7 +108,7 @@ export type Plan = {
 
 export type ExecuteRequest = {kind: 'plan'; plan: Plan};
 
-export type UndoRequest = {batchId: string};
+export type BatchRequest = {batchId: string};
 
 export type BatchProgress =
   | {event: 'started'; data: {batchId: string; totalSteps: number}}
@@ -173,6 +173,7 @@ export type CommandError = {
     | 'invalidRequest'
     | 'driveNotConnected'
     | 'driveMountedTwice'
+    | 'resumeBlocked'
     | 'internal';
   message: string;
 };

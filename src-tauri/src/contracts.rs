@@ -224,7 +224,7 @@ pub enum ExecuteRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct UndoRequest {
+pub struct BatchRequest {
     pub batch_id: String,
 }
 
