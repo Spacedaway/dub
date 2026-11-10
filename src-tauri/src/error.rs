@@ -19,6 +19,8 @@ pub enum CommandError {
     DriveMountedTwice(String),
     #[error("{0}")]
     ResumeBlocked(String),
+    #[error("{0}")]
+    UnreadablePreset(String),
     #[error("internal error: {0}")]
     Internal(String),
 }
@@ -34,6 +36,7 @@ impl CommandError {
             Self::DriveNotConnected(_) => "driveNotConnected",
             Self::DriveMountedTwice(_) => "driveMountedTwice",
             Self::ResumeBlocked(_) => "resumeBlocked",
+            Self::UnreadablePreset(_) => "unreadablePreset",
             Self::Internal(_) => "internal",
         }
     }

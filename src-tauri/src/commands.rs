@@ -1,17 +1,19 @@
 use std::path::Path;
 
-use tauri::State;
 use tauri::ipc::Channel;
+use tauri::{State, Window};
 
 use crate::contracts::{
-    BatchProgress, BatchRequest, BatchResult, BatchStep, ExecuteRequest, HistoryRequest,
-    JournalEntry, Plan, PlanRequest, ScanRequest, ScanResponse, VolumeInfo, VolumeInfoRequest,
+    BatchProgress, BatchRequest, BatchResult, BatchStep, ExecuteRequest, ExportPresetRequest,
+    HistoryRequest, JournalEntry, Plan, PlanRequest, ScanRequest, ScanResponse, VolumeInfo,
+    VolumeInfoRequest,
 };
 use crate::error::CommandError;
 use crate::executor::{self, BatchGate};
 use crate::journal::{self, JournalPath};
 use crate::planner::{self, DiskProbe};
 use crate::platform;
+use crate::preset_files;
 use crate::scan;
 
 #[tauri::command]
@@ -104,6 +106,19 @@ pub async fn batch_steps(
 ) -> Result<Vec<BatchStep>, CommandError> {
     let journal = journal.inner().clone();
     run_blocking(move || Ok(journal::batch_steps(&journal.open()?, &request.batch_id)?)).await
+}
+
+#[tauri::command]
+pub async fn export_preset(
+    window: Window,
+    request: ExportPresetRequest,
+) -> Result<bool, CommandError> {
+    run_blocking(move || preset_files::export(&window, &request.file_name, &request.contents)).await
+}
+
+#[tauri::command]
+pub async fn import_preset(window: Window) -> Result<Option<String>, CommandError> {
+    run_blocking(move || preset_files::import(&window)).await
 }
 
 async fn run_blocking<T: Send + 'static>(

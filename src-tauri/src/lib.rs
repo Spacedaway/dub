@@ -7,6 +7,7 @@ mod journal;
 mod names;
 mod planner;
 mod platform;
+mod preset_files;
 mod scan;
 
 use tauri::Manager;
@@ -43,6 +44,8 @@ pub fn run() {
             commands::resume,
             commands::history,
             commands::batch_steps,
+            commands::export_preset,
+            commands::import_preset,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

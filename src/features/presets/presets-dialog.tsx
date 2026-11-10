@@ -1,9 +1,15 @@
 import {useRef, useState, type FormEvent} from 'react';
-import {Trash2Icon} from 'lucide-react';
+import {DownloadIcon, Trash2Icon} from 'lucide-react';
 
 import {presetKey, type Preset} from '@/domain/presets/preset';
 import {plural} from '@/domain/text/plural';
-import {applyPreset, deletePreset, savePreset} from '@/store/presets';
+import {
+  applyPreset,
+  deletePreset,
+  exportPreset,
+  readPresetFile,
+  savePreset,
+} from '@/store/presets';
 import {useSession} from '@/store/session-store';
 import {
   AlertDialog,
@@ -26,7 +32,9 @@ import {
 } from '@/ui/dialog';
 import {Input} from '@/ui/input';
 
-type Replacement = {existing: Preset; incoming: Preset};
+type PresetSource = 'current' | 'file';
+
+type Replacement = {existing: Preset; incoming: Preset; source: PresetSource};
 
 export function PresetsDialog({onClose}: {onClose: () => void}) {
   const presets = useSession(state => state.presets);
@@ -45,7 +53,7 @@ export function PresetsDialog({onClose}: {onClose: () => void}) {
     if (saved && presetKey(typed) === presetKey(preset.name)) setName('');
   }
 
-  function offer(incoming: Preset) {
+  function offer(incoming: Preset, source: PresetSource) {
     const existing = useSession
       .getState()
       .presets.find(
@@ -54,14 +62,19 @@ export function PresetsDialog({onClose}: {onClose: () => void}) {
     if (existing === undefined) {
       void save(incoming);
     } else {
-      setReplacing({existing, incoming});
+      setReplacing({existing, incoming, source});
       setIsReplaceOpen(true);
     }
   }
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    if (name.trim() !== '') offer({...steps, name: name.trim()});
+    if (name.trim() !== '') offer({...steps, name: name.trim()}, 'current');
+  }
+
+  async function importFromFile() {
+    const preset = await readPresetFile();
+    if (preset !== null) offer(preset, 'file');
   }
 
   function confirmReplace() {
@@ -132,6 +145,14 @@ export function PresetsDialog({onClose}: {onClose: () => void}) {
                 <Button
                   variant="ghost"
                   size="icon-sm"
+                  aria-label={`Export ${preset.name}`}
+                  title="Export…"
+                  onClick={() => void exportPreset(preset)}>
+                  <DownloadIcon />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
                   aria-label={`Delete ${preset.name}`}
                   title="Delete"
                   onClick={() => void remove(preset, index)}>
@@ -153,6 +174,9 @@ export function PresetsDialog({onClose}: {onClose: () => void}) {
           </output>
         )}
         <DialogFooter>
+          <Button variant="ghost" onClick={() => void importFromFile()}>
+            Import…
+          </Button>
           <form onSubmit={submit} className="flex w-full gap-2">
             <Input
               ref={nameInput}
@@ -178,8 +202,9 @@ export function PresetsDialog({onClose}: {onClose: () => void}) {
             <AlertDialogHeader>
               <AlertDialogTitle>{`Replace “${replacing?.existing.name}”?`}</AlertDialogTitle>
               <AlertDialogDescription>
-                The saved preset will hold the current default templates and
-                steps instead.
+                {replacing?.source === 'file'
+                  ? 'The saved preset will be replaced by the one you imported.'
+                  : 'The saved preset will hold the current default templates and steps instead.'}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

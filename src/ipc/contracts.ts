@@ -189,6 +189,7 @@ export type CommandError = {
     | 'driveNotConnected'
     | 'driveMountedTwice'
     | 'resumeBlocked'
+    | 'unreadablePreset'
     | 'internal';
   message: string;
 };

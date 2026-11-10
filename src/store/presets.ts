@@ -7,9 +7,11 @@ import {
   readPresetText,
   type Preset,
 } from '@/domain/presets/preset';
+import {sanitiseFileName} from '@/domain/sanitising/sanitise-file-name';
 import type {StepSettings} from '@/domain/steps/step';
 import * as cache from '@/ipc/cache-db';
 import {errorMessage} from '@/ipc/command-error';
+import * as commands from '@/ipc/commands';
 import {persistDefaultTemplates} from '@/store/default-templates';
 import {useSession} from '@/store/session-store';
 
@@ -62,6 +64,33 @@ export async function deletePreset(preset: Preset): Promise<boolean> {
   }
   await loadPresets();
   return true;
+}
+
+export async function exportPreset(preset: Preset): Promise<void> {
+  try {
+    const exported = await commands.exportPreset(
+      sanitiseFileName(preset.name, '.json') || 'Preset.json',
+      `${JSON.stringify(presetJson(preset), null, 2)}\n`
+    );
+    if (exported) toast.success(`Exported “${preset.name}”`);
+  } catch (error) {
+    toast.error(`Couldn't export the preset: ${errorMessage(error)}`);
+  }
+}
+
+export async function readPresetFile(): Promise<Preset | null> {
+  let text: string | null;
+  try {
+    text = await commands.importPreset();
+  } catch (error) {
+    toast.error(`Couldn't import the preset: ${errorMessage(error)}`);
+    return null;
+  }
+  if (text === null) return null;
+  const result = readPresetText(text);
+  if (result.kind === 'read') return result.preset;
+  toast.error(`Couldn't import the preset. ${result.reason}`);
+  return null;
 }
 
 export function applyPreset(preset: Preset): void {

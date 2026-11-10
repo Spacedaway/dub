@@ -317,6 +317,13 @@ pub struct HistoryRequest {
     pub limit: u32,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportPresetRequest {
+    pub file_name: String,
+    pub contents: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JournalEntry {

@@ -55,6 +55,17 @@ export function batchSteps(request: BatchRequest): Promise<Array<BatchStep>> {
   return invoke('batch_steps', {request});
 }
 
+export function exportPreset(
+  fileName: string,
+  contents: string
+): Promise<boolean> {
+  return invoke('export_preset', {request: {fileName, contents}});
+}
+
+export function importPreset(): Promise<string | null> {
+  return invoke('import_preset');
+}
+
 function progressChannel(
   onProgress: (progress: BatchProgress) => void
 ): Channel<BatchProgress> {
