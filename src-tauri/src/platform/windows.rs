@@ -107,8 +107,12 @@ pub fn volume_info(path: &Path) -> io::Result<VolumeInfo> {
         return Err(io::Error::last_os_error());
     }
 
+    // A card reader keeps one volume GUID for every card put in it; the serial tells cards apart.
     let (id, id_stability) = if has_volume_name {
-        (text_from_wide(&volume_name), IdStability::Stable)
+        (
+            format!("{}#{serial_number:08X}", text_from_wide(&volume_name)),
+            IdStability::Stable,
+        )
     } else {
         (format!("root:{root_text}"), IdStability::MountPathOnly)
     };
