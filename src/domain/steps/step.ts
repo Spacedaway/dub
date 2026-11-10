@@ -8,6 +8,10 @@ export type NameEnd = 'start' | 'end';
 
 export type TrimEnds = NameEnd | 'both';
 
+export const nameEnds: Array<NameEnd> = ['start', 'end'];
+
+export const trimEnds: Array<TrimEnds> = [...nameEnds, 'both'];
+
 export type TemplateStep = {source: string; enabled: boolean};
 
 export type TextStepSettings = {enabled: boolean} & (
@@ -40,6 +44,12 @@ export type Steps = {
   defaultTemplates: DefaultTemplates;
   template: TemplateStep;
   textSteps: Array<TextStep>;
+};
+
+export type StepSettings = {
+  defaultTemplates: DefaultTemplates;
+  template: TemplateStep;
+  textSteps: Array<TextStepSettings>;
 };
 
 export const initialSteps: Steps = {

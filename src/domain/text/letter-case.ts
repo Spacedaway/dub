@@ -1,5 +1,11 @@
 export type LetterCaseStyle = 'upper' | 'lower' | 'title';
 
+export const letterCaseStyles: Array<LetterCaseStyle> = [
+  'upper',
+  'lower',
+  'title',
+];
+
 export function applyLetterCase(text: string, style: LetterCaseStyle): string {
   switch (style) {
     case 'upper':

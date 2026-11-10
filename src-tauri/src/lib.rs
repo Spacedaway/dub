@@ -49,10 +49,18 @@ pub fn run() {
 }
 
 fn cache_migrations() -> Vec<Migration> {
-    vec![Migration {
-        version: 1,
-        description: "lookups",
-        sql: include_str!("../migrations/0001_lookups.sql"),
-        kind: MigrationKind::Up,
-    }]
+    vec![
+        Migration {
+            version: 1,
+            description: "lookups",
+            sql: include_str!("../migrations/0001_lookups.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 2,
+            description: "presets",
+            sql: include_str!("../migrations/0002_presets.sql"),
+            kind: MigrationKind::Up,
+        },
+    ]
 }

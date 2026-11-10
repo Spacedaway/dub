@@ -14,6 +14,8 @@ import {useSession} from '@/store/session-store';
 
 const defaultTemplatesSetting = 'defaultTemplates';
 
+let persisting = Promise.resolve();
+
 export async function loadDefaultTemplates(): Promise<void> {
   const before = useSession.getState().steps.defaultTemplates;
   let stored: DefaultTemplates | null = null;
@@ -38,6 +40,19 @@ export async function saveDefaultTemplates(
   templates: DefaultTemplates
 ): Promise<void> {
   useSession.getState().setDefaultTemplates(templates);
+  await persistDefaultTemplates(templates);
+}
+
+export async function persistDefaultTemplates(
+  templates: DefaultTemplates
+): Promise<void> {
+  persisting = persisting.then(() => writeDefaultTemplates(templates));
+  await persisting;
+}
+
+async function writeDefaultTemplates(
+  templates: DefaultTemplates
+): Promise<void> {
   try {
     if (sameTemplates(templates, builtInDefaultTemplates))
       await cache.deleteSetting(defaultTemplatesSetting);

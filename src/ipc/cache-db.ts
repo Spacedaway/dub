@@ -88,3 +88,25 @@ export async function writeSetting(key: string, value: string): Promise<void> {
 export async function deleteSetting(key: string): Promise<void> {
   await database.execute('DELETE FROM settings WHERE key = $1', [key]);
 }
+
+export async function readPresetBodies(): Promise<Array<string>> {
+  const rows = await database.select<Array<{body: string}>>(
+    'SELECT body FROM presets'
+  );
+  return rows.map(row => row.body);
+}
+
+export async function writePreset(
+  nameKey: string,
+  body: string
+): Promise<void> {
+  await database.execute(
+    `INSERT INTO presets (name_key, body, saved_at) VALUES ($1, $2, $3)
+     ON CONFLICT (name_key) DO UPDATE SET body = excluded.body, saved_at = excluded.saved_at`,
+    [nameKey, body, Date.now()]
+  );
+}
+
+export async function deletePreset(nameKey: string): Promise<void> {
+  await database.execute('DELETE FROM presets WHERE name_key = $1', [nameKey]);
+}

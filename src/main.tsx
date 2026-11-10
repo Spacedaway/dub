@@ -5,6 +5,7 @@ import {followFileDrops} from '@/ipc/file-drop';
 import {loadDefaultTemplates} from '@/store/default-templates';
 import {followPlanning} from '@/store/live-plan';
 import {followLookups, loadLookupsSetting} from '@/store/lookups';
+import {loadPresets} from '@/store/presets';
 import {addPaths, loadHistory} from '@/store/session-actions';
 import {useSession} from '@/store/session-store';
 import '@/styles/main.css';
@@ -25,6 +26,7 @@ followFileDrops({
 void loadHistory();
 void loadLookupsSetting();
 void loadDefaultTemplates();
+void loadPresets();
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>

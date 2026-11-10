@@ -14,10 +14,12 @@ import type {ShowLookup} from '@/domain/lookups/group-status';
 import {lookupGroups} from '@/domain/lookups/lookup-groups';
 import {parseFileName} from '@/domain/parsing/parse-file-name';
 import type {ParsedName} from '@/domain/parsing/parsed-name';
+import type {Preset} from '@/domain/presets/preset';
 import {noRowEdits, type RowEdits} from '@/domain/preview/build-preview';
 import {
   initialSteps,
   newTextStep,
+  type StepSettings,
   type Steps,
   type TemplateStep,
   type TextStep,
@@ -57,6 +59,7 @@ type SessionState = {
   lookupsEnabled: boolean | null;
   showLookups: ReadonlyMap<string, ShowLookup>;
   lookups: Lookups;
+  presets: Array<Preset>;
 };
 
 type SessionActions = {
@@ -67,6 +70,8 @@ type SessionActions = {
   setTemplateSource: (source: string) => void;
   setTemplateEnabled: (enabled: boolean) => void;
   setDefaultTemplates: (defaultTemplates: DefaultTemplates) => void;
+  replaceSteps: (settings: StepSettings) => void;
+  setPresets: (presets: Array<Preset>) => void;
   addTextStep: (kind: TextStepKind) => string;
   updateTextStep: (step: TextStep) => void;
   deleteTextStep: (id: string) => void;
@@ -85,6 +90,10 @@ type SessionActions = {
 };
 
 let lastStepId = 0;
+
+function nextStepId(): string {
+  return `step-${++lastStepId}`;
+}
 
 function withTemplate(
   steps: Steps,
@@ -131,6 +140,7 @@ export const useSession = create<SessionState & SessionActions>()(
     lookupsEnabled: null,
     showLookups: new Map(),
     lookups: noLookups,
+    presets: [],
 
     setFiles(files, overrideMoves = new Map()) {
       const sorted = [...files].sort(
@@ -176,8 +186,20 @@ export const useSession = create<SessionState & SessionActions>()(
     setDefaultTemplates(defaultTemplates) {
       set({steps: {...get().steps, defaultTemplates}});
     },
+    replaceSteps({defaultTemplates, template, textSteps}) {
+      set({
+        steps: {
+          defaultTemplates,
+          template,
+          textSteps: textSteps.map(step => ({...step, id: nextStepId()})),
+        },
+      });
+    },
+    setPresets(presets) {
+      set({presets});
+    },
     addTextStep(kind) {
-      const id = `step-${++lastStepId}`;
+      const id = nextStepId();
       const {steps} = get();
       set(withTextSteps(steps, [...steps.textSteps, newTextStep(kind, id)]));
       return id;

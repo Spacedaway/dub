@@ -1,4 +1,4 @@
-import {useRef} from 'react';
+import {useRef, useState} from 'react';
 import {ChevronDownIcon, ChevronUpIcon, PlusIcon, XIcon} from 'lucide-react';
 
 import type {CompiledSteps} from '@/domain/steps/compile-steps';
@@ -7,6 +7,7 @@ import {
   textStepNumber,
   type TextStepKind,
 } from '@/domain/steps/step';
+import {loadPresets} from '@/store/presets';
 import {useSession} from '@/store/session-store';
 import {Button} from '@/ui/button';
 import {
@@ -15,6 +16,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/ui/dropdown-menu';
+import {PresetsDialog} from '@/features/presets/presets-dialog';
 import {SectionHeading} from '@/features/sidebar/section-heading';
 import {StepCard} from '@/features/step-editor/step-card';
 import {stepTitles} from '@/features/step-editor/step-titles';
@@ -41,6 +43,7 @@ export function StepList({
   const list = useRef<HTMLOListElement>(null);
   const addTrigger = useRef<HTMLButtonElement>(null);
   const addedStepId = useRef<string | null>(null);
+  const [isPresetsOpen, setIsPresetsOpen] = useState(false);
 
   function cardElement(id: string, selector: string): HTMLElement | null {
     return (
@@ -74,6 +77,11 @@ export function StepList({
     });
   }
 
+  function openPresets() {
+    setIsPresetsOpen(true);
+    void loadPresets();
+  }
+
   function deleteStep(id: string) {
     deleteTextStep(id);
     requestAnimationFrame(() => addTrigger.current?.focus());
@@ -83,30 +91,35 @@ export function StepList({
     <section className="flex flex-col gap-2 px-4 pb-5">
       <div className="flex items-center justify-between">
         <SectionHeading>Steps</SectionHeading>
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <Button
-                ref={addTrigger}
-                variant="ghost"
-                size="icon-xs"
-                aria-label="Add step"
-                title="Add step"
-              />
-            }>
-            <PlusIcon />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            align="end"
-            className="w-auto"
-            finalFocus={focusAfterAdding}>
-            {textStepKinds.map(kind => (
-              <DropdownMenuItem key={kind} onClick={() => addStep(kind)}>
-                {stepTitles[kind]}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="xs" onClick={openPresets}>
+            Presets
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  ref={addTrigger}
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label="Add step"
+                  title="Add step"
+                />
+              }>
+              <PlusIcon />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              className="w-auto"
+              finalFocus={focusAfterAdding}>
+              {textStepKinds.map(kind => (
+                <DropdownMenuItem key={kind} onClick={() => addStep(kind)}>
+                  {stepTitles[kind]}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
 
       <ol ref={list} className="flex flex-col gap-2">
@@ -177,6 +190,9 @@ export function StepList({
         <p className="text-caption text-muted-foreground">
           Clean-up runs last and can't be switched off.
         </p>
+      )}
+      {isPresetsOpen && (
+        <PresetsDialog onClose={() => setIsPresetsOpen(false)} />
       )}
     </section>
   );
