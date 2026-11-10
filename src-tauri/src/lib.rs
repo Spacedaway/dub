@@ -18,6 +18,7 @@ use crate::journal::JournalPath;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    platform::silence_missing_disk_prompts();
     tauri::Builder::default()
         .plugin(
             tauri_plugin_sql::Builder::new()

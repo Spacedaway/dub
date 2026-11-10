@@ -1,21 +1,25 @@
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::io;
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::Duration;
 
 use windows_sys::Win32::Foundation::{
     ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS, ERROR_FILE_EXISTS, ERROR_FILE_NOT_FOUND,
-    ERROR_FILENAME_EXCED_RANGE, ERROR_LOCK_VIOLATION, ERROR_NOT_SAME_DEVICE, ERROR_PATH_NOT_FOUND,
-    ERROR_SHARING_VIOLATION, ERROR_WRITE_PROTECT,
+    ERROR_FILENAME_EXCED_RANGE, ERROR_LOCK_VIOLATION, ERROR_MORE_DATA, ERROR_NOT_SAME_DEVICE,
+    ERROR_PATH_NOT_FOUND, ERROR_SHARING_VIOLATION, ERROR_WRITE_PROTECT,
 };
 use windows_sys::Win32::Storage::FileSystem::{
-    GetVolumeInformationW, GetVolumeNameForVolumeMountPointW, GetVolumePathNameW, MOVE_FILE_FLAGS,
-    MoveFileExW,
+    GetVolumeInformationW, GetVolumeNameForVolumeMountPointW, GetVolumePathNameW,
+    GetVolumePathNamesForVolumeNameW, MOVE_FILE_FLAGS, MoveFileExW,
+};
+use windows_sys::Win32::System::Diagnostics::Debug::{
+    GetErrorMode, SEM_FAILCRITICALERRORS, SetErrorMode,
 };
 use windows_sys::Win32::System::SystemServices::FILE_READ_ONLY_VOLUME;
 
+use super::DriveLocation;
 use crate::contracts::{ExclusiveRename, IdStability, RenameFailure, VolumeAccess, VolumeInfo};
 
 const RETRY_DELAYS_MS: [u64; 3] = [250, 500, 1000];
@@ -137,6 +141,61 @@ pub fn volume_info(path: &Path) -> io::Result<VolumeInfo> {
     })
 }
 
+pub fn locate_volume(volume_id: &str, recorded_mount: &Path) -> DriveLocation {
+    if !super::is_stable_volume_id(volume_id) {
+        return DriveLocation::Untracked;
+    }
+    let Some((volume_name, _)) = volume_id.split_once('#') else {
+        return DriveLocation::Missing;
+    };
+    let mounts = mount_paths(volume_name);
+    let chosen = mounts
+        .iter()
+        .find(|mount| mount.as_path() == recorded_mount)
+        .or_else(|| mounts.iter().find(|mount| mount.parent().is_none()))
+        .or(mounts.first());
+    match chosen {
+        Some(mount) if volume_info(mount).is_ok_and(|volume| volume.id == volume_id) => {
+            DriveLocation::Mounted(mount.clone())
+        }
+        _ => DriveLocation::Missing,
+    }
+}
+
+fn mount_paths(volume_name: &str) -> Vec<PathBuf> {
+    let volume_name_wide = wide(OsStr::new(volume_name));
+    let mut buffer = vec![0u16; 1024];
+    for _ in 0..2 {
+        let mut needed = 0u32;
+        // SAFETY: the name is NUL-terminated, the buffer's length is passed with it, and `needed` is a live local.
+        let succeeded = unsafe {
+            GetVolumePathNamesForVolumeNameW(
+                volume_name_wide.as_ptr(),
+                buffer.as_mut_ptr(),
+                buffer.len() as u32,
+                &mut needed,
+            )
+        } != 0;
+        if succeeded {
+            return buffer
+                .split(|unit| *unit == 0)
+                .take_while(|path| !path.is_empty())
+                .map(|path| PathBuf::from(OsString::from_wide(path)))
+                .collect();
+        }
+        if io::Error::last_os_error().raw_os_error() != Some(ERROR_MORE_DATA as i32) {
+            break;
+        }
+        buffer = vec![0u16; needed as usize];
+    }
+    Vec::new()
+}
+
+pub fn silence_missing_disk_prompts() {
+    // SAFETY: both calls only read and set this process's error-mode flags.
+    unsafe { SetErrorMode(GetErrorMode() | SEM_FAILCRITICALERRORS) };
+}
+
 pub fn directory_writable(_directory: &Path) -> bool {
     true
 }
@@ -154,7 +213,7 @@ fn extended_length(path: &Path) -> OsString {
     OsString::from(format!(r"\\?\{text}"))
 }
 
-fn wide(text: &std::ffi::OsStr) -> Vec<u16> {
+fn wide(text: &OsStr) -> Vec<u16> {
     text.encode_wide().chain(std::iter::once(0)).collect()
 }
 
@@ -166,4 +225,19 @@ fn text_from_wide(buffer: &[u16]) -> String {
     OsString::from_wide(&buffer[..length])
         .to_string_lossy()
         .into_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn finds_the_system_drive_from_another_letter() {
+        let root = PathBuf::from(format!(r"{}\", std::env::var("SystemDrive").unwrap()));
+        let id = volume_info(&root).unwrap().id;
+        assert!(matches!(
+            locate_volume(&id, Path::new(r"Q:\")),
+            DriveLocation::Mounted(mount) if mount == root
+        ));
+    }
 }

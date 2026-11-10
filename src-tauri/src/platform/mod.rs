@@ -3,13 +3,13 @@ use std::path::{Path, PathBuf};
 
 use crate::contracts::{RenameFailure, VolumeInfo};
 
-#[cfg_attr(
-    windows,
-    expect(dead_code, reason = "Windows doesn't look drives up yet")
-)]
 pub enum DriveLocation {
     Mounted(PathBuf),
     Missing,
+    #[cfg_attr(
+        windows,
+        expect(dead_code, reason = "Windows takes a duplicate disk offline")
+    )]
     MountedTwice,
     Untracked,
 }
@@ -45,14 +45,13 @@ pub fn path_present(path: &Path) -> bool {
     std::fs::symlink_metadata(path).is_ok()
 }
 
-#[cfg(target_os = "macos")]
 pub fn locate_volume(volume_id: &str, recorded_mount: &Path) -> DriveLocation {
     native::locate_volume(volume_id, recorded_mount)
 }
 
-#[cfg(not(target_os = "macos"))]
-pub fn locate_volume(_volume_id: &str, _recorded_mount: &Path) -> DriveLocation {
-    DriveLocation::Untracked
+pub fn silence_missing_disk_prompts() {
+    #[cfg(windows)]
+    native::silence_missing_disk_prompts();
 }
 
 pub fn is_stable_volume_id(volume_id: &str) -> bool {

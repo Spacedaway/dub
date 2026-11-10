@@ -1,6 +1,7 @@
 use std::io;
 use std::path::Path;
 
+use super::DriveLocation;
 use crate::contracts::{ExclusiveRename, IdStability, RenameFailure, VolumeAccess, VolumeInfo};
 
 pub fn rename_no_overwrite(from: &Path, to: &Path) -> Result<(), RenameFailure> {
@@ -22,4 +23,8 @@ pub fn volume_info(path: &Path) -> io::Result<VolumeInfo> {
 
 pub fn directory_writable(_directory: &Path) -> bool {
     true
+}
+
+pub fn locate_volume(_volume_id: &str, _recorded_mount: &Path) -> DriveLocation {
+    DriveLocation::Untracked
 }
