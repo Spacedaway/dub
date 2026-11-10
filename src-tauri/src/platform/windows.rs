@@ -1,6 +1,8 @@
 use std::ffi::{OsStr, OsString};
+use std::fs::OpenOptions;
 use std::io;
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
+use std::os::windows::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::Duration;
@@ -11,8 +13,9 @@ use windows_sys::Win32::Foundation::{
     ERROR_PATH_NOT_FOUND, ERROR_SHARING_VIOLATION, ERROR_WRITE_PROTECT,
 };
 use windows_sys::Win32::Storage::FileSystem::{
-    GetVolumeInformationW, GetVolumeNameForVolumeMountPointW, GetVolumePathNameW,
-    GetVolumePathNamesForVolumeNameW, MOVE_FILE_FLAGS, MoveFileExW,
+    FILE_ADD_FILE, FILE_FLAG_BACKUP_SEMANTICS, GetVolumeInformationW,
+    GetVolumeNameForVolumeMountPointW, GetVolumePathNameW, GetVolumePathNamesForVolumeNameW,
+    MOVE_FILE_FLAGS, MoveFileExW,
 };
 use windows_sys::Win32::System::Diagnostics::Debug::{
     GetErrorMode, SEM_FAILCRITICALERRORS, SetErrorMode,
@@ -196,8 +199,19 @@ pub fn silence_missing_disk_prompts() {
     unsafe { SetErrorMode(GetErrorMode() | SEM_FAILCRITICALERRORS) };
 }
 
-pub fn directory_writable(_directory: &Path) -> bool {
-    true
+// Only adding files is checked: FILE_DELETE_CHILD isn't part of Modify, so requiring it would block ordinary folders.
+pub fn directory_writable(directory: &Path) -> bool {
+    let opened = OpenOptions::new()
+        .access_mode(FILE_ADD_FILE)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+        .open(directory);
+    match opened {
+        Ok(_) => true,
+        Err(error) => !matches!(
+            error.kind(),
+            io::ErrorKind::PermissionDenied | io::ErrorKind::ReadOnlyFilesystem
+        ),
+    }
 }
 
 // \\?\ switches off Windows' path normalisation, so `absolute` has to normalise it first.

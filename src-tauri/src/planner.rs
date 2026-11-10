@@ -25,6 +25,12 @@ pub struct DiskProbe {
     writable_directories: HashMap<PathBuf, bool>,
 }
 
+impl DiskProbe {
+    pub fn into_volumes(self) -> impl Iterator<Item = VolumeInfo> {
+        self.volumes.into_values().flatten()
+    }
+}
+
 impl FileProbe for DiskProbe {
     fn exists(&mut self, path: &Path) -> bool {
         platform::path_present(path)

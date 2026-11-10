@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fs::{self, Metadata};
 use std::path::{Path, PathBuf};
 
@@ -7,7 +7,7 @@ use crate::contracts::{
     VolumeInfo,
 };
 use crate::journal::milliseconds_since_epoch;
-use crate::platform;
+use crate::planner::{DiskProbe, FileProbe};
 
 const SYSTEM_JUNK: [&str; 3] = [".DS_Store", "Thumbs.db", "desktop.ini"];
 
@@ -23,7 +23,7 @@ pub fn scan(request: ScanRequest) -> ScanResponse {
 struct Collector {
     files: Vec<ScannedFile>,
     seen: HashSet<PathBuf>,
-    volumes_by_directory: HashMap<PathBuf, Option<VolumeInfo>>,
+    probe: DiskProbe,
     problems: Vec<ScanProblem>,
     junk_skipped: u32,
 }
@@ -92,12 +92,12 @@ impl Collector {
             return;
         };
 
-        let Some(volume) = self.volume_for(directory) else {
+        let Some(volume) = self.probe.volume(directory) else {
             return self.unreadable(path, "the drive holding this file couldn't be read");
         };
         let access = if volume.access == VolumeAccess::ReadOnly {
             FileAccess::ReadOnlyVolume
-        } else if !platform::directory_writable(directory) {
+        } else if !self.probe.directory_writable(directory) {
             FileAccess::FolderNotWritable
         } else {
             FileAccess::Writable
@@ -123,13 +123,6 @@ impl Collector {
         });
     }
 
-    fn volume_for(&mut self, directory: &Path) -> Option<VolumeInfo> {
-        self.volumes_by_directory
-            .entry(directory.to_path_buf())
-            .or_insert_with(|| platform::volume_info(directory).ok())
-            .clone()
-    }
-
     fn unreadable(&mut self, path: &Path, message: &str) {
         self.problems.push(ScanProblem::Unreadable {
             path: path.to_string_lossy().into_owned(),
@@ -139,7 +132,7 @@ impl Collector {
 
     fn finish(self) -> ScanResponse {
         let mut volumes: Vec<VolumeInfo> = Vec::new();
-        for volume in self.volumes_by_directory.into_values().flatten() {
+        for volume in self.probe.into_volumes() {
             if !volumes.iter().any(|known| known.id == volume.id) {
                 volumes.push(volume);
             }
