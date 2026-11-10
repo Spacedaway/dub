@@ -3,6 +3,10 @@ use std::path::{Path, PathBuf};
 
 use crate::contracts::{RenameFailure, VolumeInfo};
 
+#[cfg_attr(
+    windows,
+    expect(dead_code, reason = "Windows doesn't look drives up yet")
+)]
 pub enum DriveLocation {
     Mounted(PathBuf),
     Missing,

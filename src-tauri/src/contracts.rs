@@ -88,6 +88,10 @@ pub enum VolumeAccess {
 #[serde(rename_all = "camelCase")]
 pub enum ExclusiveRename {
     Native,
+    #[cfg_attr(
+        windows,
+        expect(dead_code, reason = "MoveFileExW never overwrites on Windows")
+    )]
     CheckThenRename,
 }
 
