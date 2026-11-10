@@ -177,15 +177,8 @@ fn is_system_junk(path: &Path) -> bool {
 }
 
 fn is_hidden_in_folder(path: &Path) -> bool {
-    if is_system_junk(path) {
-        return true;
-    }
-    let name = path
-        .file_name()
-        .map(|name| name.to_string_lossy())
-        .unwrap_or_default();
-    if cfg!(windows) && name.starts_with("._") {
-        return false;
-    }
-    name.starts_with('.')
+    is_system_junk(path)
+        || path
+            .file_name()
+            .is_some_and(|name| name.to_string_lossy().starts_with('.'))
 }
