@@ -1,9 +1,10 @@
-import {useRef} from 'react';
+import {useRef, useState} from 'react';
 
 import type {NameSource} from '@/domain/steps/compile-steps';
-import type {TemplateError} from '@/domain/templates/template';
 import {Button} from '@/ui/button';
+import {DefaultTemplatesDialog} from '@/features/step-editor/default-templates-dialog';
 import {StepInput} from '@/features/step-editor/field-controls';
+import {describeTemplateError} from '@/features/step-editor/template-error';
 
 const suggestedTags = [
   'Original',
@@ -30,6 +31,7 @@ export function TemplateField({
   onChange,
 }: TemplateFieldProps) {
   const input = useRef<HTMLInputElement>(null);
+  const [isEditingDefaults, setIsEditingDefaults] = useState(false);
 
   function insertTag(tag: string) {
     const element = input.current;
@@ -67,15 +69,19 @@ export function TemplateField({
           numbers in their names. Use &lt;Episode&gt; to keep them.
         </p>
       )}
-      {nameSource.kind !== 'suggested' && (
+      <div className="flex flex-wrap gap-1">
+        {nameSource.kind !== 'suggested' && (
+          <Button variant="ghost" size="xs" onClick={() => onChange('')}>
+            Use suggestions
+          </Button>
+        )}
         <Button
           variant="ghost"
           size="xs"
-          className="self-start"
-          onClick={() => onChange('')}>
-          Use suggestions
+          onClick={() => setIsEditingDefaults(true)}>
+          Default templates…
         </Button>
-      )}
+      </div>
       <div className="flex flex-wrap gap-1">
         {suggestedTags.map(tag => (
           <button
@@ -87,24 +93,9 @@ export function TemplateField({
           </button>
         ))}
       </div>
+      {isEditingDefaults && (
+        <DefaultTemplatesDialog onClose={() => setIsEditingDefaults(false)} />
+      )}
     </div>
   );
-}
-
-function describeTemplateError(error: TemplateError): string {
-  const at = `at character ${error.position + 1}`;
-  switch (error.kind) {
-    case 'unknownTag':
-      return `There's no tag called “${error.tag}” (${at}).`;
-    case 'unknownModifier':
-      return `“${error.modifier}” isn't a modifier Dub knows (${at}).`;
-    case 'modifierNotAllowed':
-      return `<${error.tag}> can't take “${error.modifier}” (${at}).`;
-    case 'unclosedTag':
-      return `A tag is missing its closing “>” (${at}).`;
-    case 'unclosedOptional':
-      return `An optional part is missing its closing “}” (${at}).`;
-    case 'unmatchedBrace':
-      return `There's a “}” with no matching “{” (${at}). Use }} for a literal brace.`;
-  }
 }

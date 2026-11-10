@@ -1,5 +1,10 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 
+import {
+  builtInDefaultTemplates,
+  parseDefaultTemplates,
+  templateSources,
+} from '@/domain/suggestions/default-templates';
 import type {Plan, PlanRequest, ScannedFile} from '@/ipc/contracts';
 import {followPlanning, planningDelayMs} from '@/store/live-plan';
 import {useSession} from '@/store/session-store';
@@ -127,6 +132,21 @@ describe('followPlanning', () => {
 
     expect(pendingPlans.map(({request}) => targetNames(request))).toEqual([
       'b.mkv',
+    ]);
+  });
+
+  it('plans again when the default templates change', async () => {
+    await vi.advanceTimersByTimeAsync(planningDelayMs);
+    const templates = parseDefaultTemplates({
+      ...templateSources(builtInDefaultTemplates),
+      generic: '<Original> (copy)',
+    });
+    if (templates === null) throw new Error('Expected valid templates');
+    useSession.getState().setDefaultTemplates(templates);
+    await vi.advanceTimersByTimeAsync(planningDelayMs);
+
+    expect(pendingPlans.map(({request}) => targetNames(request))).toEqual([
+      'a (copy).mkv',
     ]);
   });
 

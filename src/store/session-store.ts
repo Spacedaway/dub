@@ -23,6 +23,7 @@ import {
   type TextStep,
   type TextStepKind,
 } from '@/domain/steps/step';
+import type {DefaultTemplates} from '@/domain/suggestions/default-templates';
 import type {
   BatchKind,
   JournalEntry,
@@ -65,6 +66,7 @@ type SessionActions = {
   ) => void;
   setTemplateSource: (source: string) => void;
   setTemplateEnabled: (enabled: boolean) => void;
+  setDefaultTemplates: (defaultTemplates: DefaultTemplates) => void;
   addTextStep: (kind: TextStepKind) => string;
   updateTextStep: (step: TextStep) => void;
   deleteTextStep: (id: string) => void;
@@ -170,6 +172,9 @@ export const useSession = create<SessionState & SessionActions>()(
     },
     setTemplateEnabled(enabled) {
       set(withTemplate(get().steps, {enabled}));
+    },
+    setDefaultTemplates(defaultTemplates) {
+      set({steps: {...get().steps, defaultTemplates}});
     },
     addTextStep(kind) {
       const id = `step-${++lastStepId}`;

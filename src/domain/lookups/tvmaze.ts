@@ -1,3 +1,9 @@
+import {
+  isObject,
+  isWholeNumber,
+  type JsonObject,
+} from '@/domain/json/json-guards';
+
 export type TvShow = {
   id: number;
   name: string;
@@ -19,8 +25,6 @@ export type ShowListing = {
   episodes: Array<TvEpisode>;
   fetchedAt: number;
 };
-
-type JsonObject = Record<string, unknown>;
 
 const placeholderTitles = /^(?:TBA|TBD|Episode \d+)$/i;
 
@@ -106,14 +110,6 @@ function readEpisode(json: unknown): TvEpisode | null {
     title: title === null || placeholderTitles.test(title) ? null : title,
     airDate: isoDate(json.airdate),
   };
-}
-
-function isObject(value: unknown): value is JsonObject {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isWholeNumber(value: unknown): value is number {
-  return typeof value === 'number' && Number.isInteger(value);
 }
 
 function text(value: unknown): string | null {

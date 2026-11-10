@@ -7,6 +7,14 @@ export type FileKind =
   | 'film'
   | 'generic';
 
+export const fileKinds: Array<FileKind> = [
+  'tvEpisode',
+  'datedEpisode',
+  'numberedEpisode',
+  'film',
+  'generic',
+];
+
 export function classifyFile(parsed: ParsedName | null): FileKind {
   if (parsed === null || parsed.name === null) return 'generic';
   if (parsed.season !== null && parsed.episodes.length > 0) return 'tvEpisode';

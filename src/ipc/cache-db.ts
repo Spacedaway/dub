@@ -84,3 +84,7 @@ export async function writeSetting(key: string, value: string): Promise<void> {
     [key, value]
   );
 }
+
+export async function deleteSetting(key: string): Promise<void> {
+  await database.execute('DELETE FROM settings WHERE key = $1', [key]);
+}

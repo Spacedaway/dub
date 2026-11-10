@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 
 import {followFileDrops} from '@/ipc/file-drop';
+import {loadDefaultTemplates} from '@/store/default-templates';
 import {followPlanning} from '@/store/live-plan';
 import {followLookups, loadLookupsSetting} from '@/store/lookups';
 import {addPaths, loadHistory} from '@/store/session-actions';
@@ -23,6 +24,7 @@ followFileDrops({
 });
 void loadHistory();
 void loadLookupsSetting();
+void loadDefaultTemplates();
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
