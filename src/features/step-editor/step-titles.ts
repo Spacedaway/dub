@@ -1,4 +1,4 @@
-import type {StepKind, TextStepKind} from '@/domain/steps/step';
+import type {StepKind} from '@/domain/steps/step';
 
 export const stepTitles: Record<StepKind, string> = {
   template: 'Template',
@@ -7,10 +7,3 @@ export const stepTitles: Record<StepKind, string> = {
   trim: 'Trim',
   remove: 'Remove',
 };
-
-export const textStepKinds: Array<TextStepKind> = [
-  'replace',
-  'case',
-  'trim',
-  'remove',
-];

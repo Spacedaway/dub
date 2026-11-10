@@ -8,7 +8,6 @@ import {applyTextStep} from '@/domain/steps/apply-text-step';
 import type {NameStart, StepPipeline} from '@/domain/steps/compile-steps';
 import type {StepKind} from '@/domain/steps/step';
 import {classifyFile, type FileKind} from '@/domain/suggestions/classify-file';
-import {defaultTemplates} from '@/domain/suggestions/default-templates';
 import {fileTagValues, parsedTagValues} from '@/domain/tags/file-tags';
 import type {TagName, TagValues} from '@/domain/tags/tags';
 import {
@@ -164,7 +163,7 @@ function renderStart(
     case 'original':
       return {text: collapseSpaces(file.stem), missingTags: []};
     case 'suggested':
-      return renderTemplate(defaultTemplates[kind], values, counter);
+      return renderTemplate(start.templates[kind], values, counter);
     case 'template':
       return renderTemplate(start.template, values, counter);
   }

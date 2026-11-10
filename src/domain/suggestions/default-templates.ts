@@ -2,7 +2,9 @@ import type {FileKind} from '@/domain/suggestions/classify-file';
 import {parseTemplate} from '@/domain/templates/parse-template';
 import type {Template} from '@/domain/templates/template';
 
-export const defaultTemplates: Record<FileKind, Template> = {
+export type DefaultTemplates = Record<FileKind, Template>;
+
+export const builtInDefaultTemplates: DefaultTemplates = {
   tvEpisode: parsedDefault(
     '<Name> - S<Season:00>E<Episode:00>{ - <Episode Title>}'
   ),

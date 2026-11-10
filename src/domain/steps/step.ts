@@ -1,3 +1,7 @@
+import {
+  builtInDefaultTemplates,
+  type DefaultTemplates,
+} from '@/domain/suggestions/default-templates';
 import type {LetterCaseStyle} from '@/domain/text/letter-case';
 
 export type NameEnd = 'start' | 'end';
@@ -6,7 +10,7 @@ export type TrimEnds = NameEnd | 'both';
 
 export type TemplateStep = {source: string; enabled: boolean};
 
-export type TextStep = {id: string; enabled: boolean} & (
+export type TextStepSettings = {enabled: boolean} & (
   | {
       kind: 'replace';
       find: string;
@@ -19,13 +23,27 @@ export type TextStep = {id: string; enabled: boolean} & (
   | {kind: 'remove'; count: number; position: number; from: NameEnd}
 );
 
+export type TextStep = {id: string} & TextStepSettings;
+
 export type TextStepKind = TextStep['kind'];
+
+export const textStepKinds: Array<TextStepKind> = [
+  'replace',
+  'case',
+  'trim',
+  'remove',
+];
 
 export type StepKind = 'template' | TextStepKind;
 
-export type Steps = {template: TemplateStep; textSteps: Array<TextStep>};
+export type Steps = {
+  defaultTemplates: DefaultTemplates;
+  template: TemplateStep;
+  textSteps: Array<TextStep>;
+};
 
 export const initialSteps: Steps = {
+  defaultTemplates: builtInDefaultTemplates,
   template: {source: '', enabled: true},
   textSteps: [],
 };

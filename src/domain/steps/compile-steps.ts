@@ -5,6 +5,7 @@ import {
   type TextStep,
   type TrimEnds,
 } from '@/domain/steps/step';
+import type {DefaultTemplates} from '@/domain/suggestions/default-templates';
 import {parseTemplate} from '@/domain/templates/parse-template';
 import type {Template, TemplateParseResult} from '@/domain/templates/template';
 import {splitGraphemes} from '@/domain/text/graphemes';
@@ -13,7 +14,7 @@ import type {LetterCaseStyle} from '@/domain/text/letter-case';
 export type NameSource = {kind: 'suggested'} | TemplateParseResult;
 
 export type NameStart =
-  | {kind: 'suggested'}
+  | {kind: 'suggested'; templates: DefaultTemplates}
   | {kind: 'template'; template: Template}
   | {kind: 'original'};
 
@@ -74,7 +75,7 @@ function startFor(template: NameSource, steps: Steps): NameStart {
   if (!steps.template.enabled || template.kind === 'invalid')
     return {kind: 'original'};
   return template.kind === 'suggested'
-    ? {kind: 'suggested'}
+    ? {kind: 'suggested', templates: steps.defaultTemplates}
     : {kind: 'template', template: template.template};
 }
 

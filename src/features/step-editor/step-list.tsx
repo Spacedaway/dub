@@ -2,7 +2,11 @@ import {useRef} from 'react';
 import {ChevronDownIcon, ChevronUpIcon, PlusIcon, XIcon} from 'lucide-react';
 
 import type {CompiledSteps} from '@/domain/steps/compile-steps';
-import {textStepNumber, type TextStepKind} from '@/domain/steps/step';
+import {
+  textStepKinds,
+  textStepNumber,
+  type TextStepKind,
+} from '@/domain/steps/step';
 import {useSession} from '@/store/session-store';
 import {Button} from '@/ui/button';
 import {
@@ -13,7 +17,7 @@ import {
 } from '@/ui/dropdown-menu';
 import {SectionHeading} from '@/features/sidebar/section-heading';
 import {StepCard} from '@/features/step-editor/step-card';
-import {stepTitles, textStepKinds} from '@/features/step-editor/step-titles';
+import {stepTitles} from '@/features/step-editor/step-titles';
 import {TemplateField} from '@/features/step-editor/template-field';
 import {TextStepFields} from '@/features/step-editor/text-step-fields';
 

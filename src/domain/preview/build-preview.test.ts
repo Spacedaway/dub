@@ -76,7 +76,11 @@ describe('buildPreview', () => {
     };
     expect(
       proposals(
-        {template: {source: '', enabled: false}, textSteps: [doubleSpaces]},
+        {
+          ...initialSteps,
+          template: {source: '', enabled: false},
+          textSteps: [doubleSpaces],
+        },
         files
       )
     ).toEqual([{kind: 'unchanged'}, {kind: 'unchanged'}]);
